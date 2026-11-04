@@ -27,6 +27,11 @@ from backend.exporter import (
     analysis_to_excel_bytes,
 )
 
+from backend.trend_analyzer import (
+    detect_date_columns,
+    analyze_trends,
+    generate_trend_insights,
+)
 
 # --------------------------------------------------
 # PAGE CONFIGURATION
@@ -80,6 +85,7 @@ page = st.sidebar.radio(
         "Dashboard",
         "Clean Data",
         "Data Analysis",
+        "Trend Analysis",
         "Export Results",
     ],
 )
@@ -558,6 +564,261 @@ elif page == "Data Analysis":
                 st.warning(
                     "At least two numerical columns are required."
                 )
+
+
+
+# --------------------------------------------------
+# TRENDS ANALYSIS
+# --------------------------------------------------
+
+
+# ==========================================
+# ADVANCED TREND ANALYSIS
+# ==========================================
+
+elif page == "Trend Analysis":
+
+    st.header("📈 Advanced Trend Analysis")
+
+    st.write(
+        "Explore trends, growth rates, moving averages, "
+        "and changes in your dataset over time."
+    )
+
+    date_columns = detect_date_columns(cleaned_df)
+
+    numeric_columns = cleaned_df.select_dtypes(
+        include="number"
+    ).columns.tolist()
+
+    if not date_columns:
+        st.warning(
+            "No date columns detected. "
+            "Your dataset must contain valid dates."
+        )
+
+    elif not numeric_columns:
+        st.warning(
+            "Trend analysis requires at least one numerical column."
+        )
+
+    else:
+
+        # ======================================
+        # CONFIGURATION
+        # ======================================
+
+        st.subheader("Analysis Configuration")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            selected_date_column = st.selectbox(
+                "Select Date Column",
+                date_columns,
+            )
+
+            selected_value_column = st.selectbox(
+                "Select Numerical Column",
+                numeric_columns,
+            )
+
+        with col2:
+            frequency = st.selectbox(
+                "Analysis Frequency",
+                ["Daily", "Weekly", "Monthly", "Yearly"],
+                index=0,
+            )
+
+            aggregation = st.selectbox(
+                "Aggregation Method",
+                ["Sum", "Average", "Count", "Minimum", "Maximum"],
+            )
+
+        try:
+
+            result, summary = analyze_trends(
+                cleaned_df,
+                selected_date_column,
+                selected_value_column,
+                frequency,
+                aggregation,
+            )
+
+            # ======================================
+            # KPI CARDS
+            # ======================================
+
+            st.divider()
+            st.subheader("Trend Overview")
+
+            c1, c2, c3, c4 = st.columns(4)
+
+            c1.metric(
+                "Records Analyzed",
+                f"{summary['Total Records']:,}",
+            )
+
+            c2.metric(
+                "Time Periods",
+                f"{summary['Periods']:,}",
+            )
+
+            c3.metric(
+                "Latest Period Value",
+                f"{summary['Latest Period Value']:,.2f}",
+            )
+
+            growth = summary["Latest Growth %"]
+
+            c4.metric(
+                "Latest Growth",
+                f"{growth:+.2f}%" if growth is not None else "N/A",
+            )
+
+            # ======================================
+            # TREND VISUALIZATION
+            # ======================================
+
+            st.divider()
+            st.subheader("Time Series Trend")
+
+            if len(result) < 2:
+
+                st.warning(
+                    "Only one time period is available. "
+                    "A trend requires at least two periods. "
+                    "Try selecting Daily frequency or upload "
+                    "a dataset covering a longer time range."
+                )
+
+            fig, ax = plt.subplots(figsize=(12, 5))
+
+            if len(result) == 1:
+
+                ax.scatter(
+                    result["Date"],
+                    result["Value"],
+                    color="#0f9f93",
+                    s=110,
+                    zorder=3,
+                    label="Observed Value",
+                )
+
+                ax.annotate(
+                    f"{result['Value'].iloc[0]:,.2f}",
+                    (
+                        result["Date"].iloc[0],
+                        result["Value"].iloc[0],
+                    ),
+                    xytext=(0, 15),
+                    textcoords="offset points",
+                    ha="center",
+                    fontsize=11,
+                )
+
+                ax.set_xlim(
+                    result["Date"].iloc[0] - pd.Timedelta(days=2),
+                    result["Date"].iloc[0] + pd.Timedelta(days=2),
+                )
+
+            else:
+
+                ax.plot(
+                    result["Date"],
+                    result["Value"],
+                    color="#0f9f93",
+                    linewidth=2.5,
+                    marker="o",
+                    markersize=5,
+                    label="Actual Value",
+                )
+
+                ax.plot(
+                    result["Date"],
+                    result["Moving Average"],
+                    color="#14233f",
+                    linewidth=2,
+                    linestyle="--",
+                    label="3-Period Moving Average",
+                )
+
+                ax.margins(x=0.03)
+
+            ax.set_title(
+                f"{frequency} {aggregation} Trend",
+                fontsize=15,
+                fontweight="bold",
+            )
+
+            ax.set_xlabel("Date")
+            ax.set_ylabel(selected_value_column)
+            ax.grid(alpha=0.2)
+            ax.legend()
+
+            fig.autofmt_xdate()
+            fig.tight_layout()
+
+            st.pyplot(fig)
+            plt.close(fig)
+
+            # ======================================
+            # PERIOD COMPARISON TABLE
+            # ======================================
+
+            st.divider()
+            st.subheader("Period-over-Period Analysis")
+
+            st.dataframe(
+                result,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            st.caption(
+                "Growth compares consecutive observed periods. "
+                "The moving average uses the latest three "
+                "observed periods."
+            )
+
+            # ======================================
+            # AUTOMATED INSIGHTS
+            # ======================================
+
+            st.divider()
+            st.subheader("Automated Trend Insights")
+
+            insights = generate_trend_insights(
+                result,
+                summary,
+            )
+
+            for insight in insights:
+                st.info(insight)
+
+            # ======================================
+            # EXPORT
+            # ======================================
+
+            st.divider()
+            st.subheader("Export Trend Results")
+
+            csv_data = result.to_csv(
+                index=False
+            ).encode("utf-8")
+
+            st.download_button(
+                "Download Trend Analysis CSV",
+                data=csv_data,
+                file_name="trend_analysis.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+
+        except (ValueError, KeyError, TypeError) as error:
+            st.error(
+                f"Trend analysis failed: {error}"
+            )
 
 
 # --------------------------------------------------
