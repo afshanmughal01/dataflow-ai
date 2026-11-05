@@ -33,6 +33,8 @@ from backend.trend_analyzer import (
     generate_trend_insights,
 )
 
+from backend.data_quality import analyze_data_quality
+
 # --------------------------------------------------
 # PAGE CONFIGURATION
 # --------------------------------------------------
@@ -85,6 +87,7 @@ page = st.sidebar.radio(
         "Dashboard",
         "Clean Data",
         "Data Analysis",
+        "Data Quality",
         "Trend Analysis",
         "Export Results",
     ],
@@ -565,6 +568,147 @@ elif page == "Data Analysis":
                     "At least two numerical columns are required."
                 )
 
+
+
+# --------------------------------------------------
+# SMART DATA QUALITY
+# --------------------------------------------------
+
+elif page == "Data Quality":
+
+    st.header("Smart Data Quality")
+    st.write(
+        "Profile your dataset, identify data-quality issues, "
+        "and review column-level quality scores."
+    )
+
+    quality_result = analyze_data_quality(cleaned_df)
+    quality_score = quality_result["overall_score"]
+    quality_grade = quality_result["grade"]
+    quality_summary = quality_result["summary"]
+    quality_report = quality_result["column_report"]
+    quality_issues = pd.DataFrame(quality_result["issues"])
+
+    # Overall score and grade
+    score_col, grade_col, note_col = st.columns([1, 1, 2])
+
+    with score_col:
+        st.metric("Overall Quality Score", f"{quality_score:.1f}%")
+        st.progress(int(round(quality_score)))
+
+    with grade_col:
+        st.metric("Quality Grade", quality_grade)
+
+    with note_col:
+        st.info(
+            "This score is a rule-based indicator based on completeness, "
+            "duplicate rows, formatting, and mixed data types. Review the "
+            "detected issues before making data-cleaning decisions."
+        )
+
+    st.divider()
+    st.subheader("Dataset Quality Overview")
+
+    q1, q2, q3, q4 = st.columns(4)
+    q1.metric("Missing Cells", f"{quality_summary['Missing Cells']:,}",
+              f"{quality_summary['Missing Percentage']:.1f}%")
+    q2.metric("Duplicate Rows", f"{quality_summary['Duplicate Rows']:,}",
+              f"{quality_summary['Duplicate Percentage']:.1f}%")
+    q3.metric("Columns With Issues", f"{quality_summary['Columns With Issues']:,}")
+    q4.metric("Mixed-Type Columns", f"{quality_summary['Columns With Mixed Types']:,}")
+
+    st.caption(
+        f"Analyzing the current dataset: {len(cleaned_df):,} rows × "
+        f"{len(cleaned_df.columns):,} columns."
+    )
+
+    st.divider()
+    st.subheader("Column Quality Report")
+
+    if quality_report.empty:
+        st.info("No columns are available for quality analysis.")
+    else:
+        st.dataframe(
+            quality_report,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        # Column quality score chart
+        score_chart_data = quality_report.sort_values(
+            "Quality Score", ascending=True
+        )
+        fig, ax = plt.subplots(figsize=(10, max(3, len(score_chart_data) * 0.45)))
+        bars = ax.barh(
+            score_chart_data["Column"].astype(str),
+            score_chart_data["Quality Score"],
+            color="#0f9f93",
+        )
+        ax.set_xlim(0, 100)
+        ax.set_xlabel("Quality Score (%)")
+        ax.set_title("Quality Score by Column", fontweight="bold")
+        ax.grid(axis="x", alpha=0.2)
+        ax.bar_label(bars, fmt="%.1f", padding=3)
+        fig.tight_layout()
+        st.pyplot(fig, clear_figure=True)
+        plt.close(fig)
+
+    st.divider()
+    st.subheader("Detected Data Quality Issues")
+
+    if quality_issues.empty:
+        st.success("No issues were detected in the current dataset.")
+    else:
+        issue_counts = (
+            quality_issues["issue"]
+            .value_counts()
+            .rename_axis("Issue")
+            .reset_index(name="Affected Columns")
+        )
+        issue_col, details_col = st.columns([1, 2])
+
+        with issue_col:
+            st.markdown("**Issue distribution**")
+            st.dataframe(
+                issue_counts,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        with details_col:
+            st.markdown("**Issue details**")
+            st.dataframe(
+                quality_issues,
+                use_container_width=True,
+                hide_index=True,
+            )
+
+        st.warning(
+            "These are detected patterns, not automatic corrections. "
+            "Review each issue before changing your dataset."
+        )
+
+    st.divider()
+    st.subheader("Download Quality Results")
+
+    download_col1, download_col2 = st.columns(2)
+    with download_col1:
+        st.download_button(
+            "Download Column Quality Report (CSV)",
+            data=quality_report.to_csv(index=False).encode("utf-8-sig"),
+            file_name="data_quality_report.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+    with download_col2:
+        st.download_button(
+            "Download Detected Issues (CSV)",
+            data=quality_issues.to_csv(index=False).encode("utf-8-sig"),
+            file_name="data_quality_issues.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
 
 
 # --------------------------------------------------

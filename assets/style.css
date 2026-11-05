@@ -1,22 +1,27 @@
 
 /* ==========================================
    DATAFLOW AI - COMPLETE FRONTEND STYLING
-   ========================================== */
+   Navy + Teal Professional Theme
+========================================== */
 
 :root {
     --navy: #14233f;
+    --navy-light: #263d5b;
     --teal: #0f9f93;
     --teal-dark: #087f77;
+    --teal-light: #e6f7f4;
     --ink: #172a46;
     --muted: #64748b;
     --line: #e3e9f2;
     --background: #f5f8fc;
     --white: #ffffff;
+    --hover: #edf7f6;
+    --shadow: 0 4px 16px rgba(22, 40, 70, 0.06);
 }
 
 /* ==========================================
    MAIN APPLICATION
-   ========================================== */
+========================================== */
 
 .stApp {
     background: var(--background) !important;
@@ -30,14 +35,14 @@
 }
 
 [data-testid="stHeader"] {
-    background: rgba(245, 248, 252, 0.95);
+    background: rgba(245, 248, 252, 0.95) !important;
 }
 
 /* ==========================================
    HEADINGS AND TEXT
-   ========================================== */
+========================================== */
 
-h1, h2, h3, h4 {
+h1, h2, h3, h4, h5, h6 {
     color: var(--navy) !important;
     opacity: 1 !important;
     letter-spacing: -0.025em;
@@ -62,6 +67,11 @@ h3 {
     color: var(--ink);
 }
 
+.stCaption,
+[data-testid="stCaptionContainer"] {
+    color: var(--muted) !important;
+}
+
 .eyebrow {
     font-size: 0.72rem;
     font-weight: 800;
@@ -72,7 +82,7 @@ h3 {
 
 /* ==========================================
    SIDEBAR
-   ========================================== */
+========================================== */
 
 [data-testid="stSidebar"] {
     background: var(--navy) !important;
@@ -130,15 +140,20 @@ h3 {
 
 /* Sidebar navigation */
 
+[data-testid="stSidebar"] [role="radiogroup"] {
+    gap: 5px;
+}
+
 [data-testid="stSidebar"] [role="radiogroup"] label {
-    padding: 8px 10px;
+    padding: 9px 11px;
     border-radius: 9px;
     margin-bottom: 4px;
+    border-left: 3px solid transparent;
     transition: background 0.2s ease;
 }
 
 [data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) {
-    background: #263d5b !important;
+    background: var(--navy-light) !important;
     border-left: 3px solid #2bd4bd;
 }
 
@@ -148,6 +163,12 @@ h3 {
 
 [data-testid="stSidebar"] [role="radiogroup"] label p {
     color: #e3ebf7 !important;
+    font-weight: 500;
+}
+
+[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) p {
+    color: #ffffff !important;
+    font-weight: 700 !important;
 }
 
 /* Sidebar uploader */
@@ -157,16 +178,22 @@ h3 {
 }
 
 /* ==========================================
-   METRIC / KPI CARDS
-   ========================================== */
+   KPI / METRIC CARDS
+========================================== */
 
 [data-testid="stMetric"] {
-    background: #ffffff;
+    background: var(--white);
     border: 1px solid var(--line);
     border-radius: 14px;
     padding: 18px 20px;
-    box-shadow: 0 4px 16px rgba(22, 40, 70, 0.045);
+    box-shadow: var(--shadow);
     min-height: 115px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+[data-testid="stMetric"]:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 7px 20px rgba(22, 40, 70, 0.09);
 }
 
 [data-testid="stMetricLabel"] p {
@@ -180,31 +207,217 @@ h3 {
 }
 
 /* ==========================================
-   DATAFRAMES AND TABLES
-   ========================================== */
+   SELECTBOX / DROPDOWN
+========================================== */
 
-[data-testid="stDataFrame"] {
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    overflow: hidden;
+.stSelectbox [data-baseweb="select"] > div,
+.stMultiSelect [data-baseweb="select"] > div {
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 9px !important;
+    min-height: 42px;
+    color: var(--ink) !important;
+    transition: border 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Dropdown focus */
+
+.stSelectbox [data-baseweb="select"] > div:focus-within,
+.stMultiSelect [data-baseweb="select"] > div:focus-within {
+    border-color: var(--teal) !important;
+    box-shadow: 0 0 0 2px rgba(15, 159, 147, 0.13) !important;
+}
+
+/* Selected dropdown text */
+
+.stSelectbox [data-baseweb="select"] span,
+.stMultiSelect [data-baseweb="select"] span {
+    color: var(--ink) !important;
+}
+
+/* Dropdown arrow */
+
+.stSelectbox [data-baseweb="select"] svg,
+.stMultiSelect [data-baseweb="select"] svg {
+    fill: var(--teal) !important;
+}
+
+/* Dropdown popup */
+
+[data-baseweb="popover"] {
+    border-radius: 10px !important;
+    box-shadow: 0 8px 24px rgba(20, 35, 63, 0.13) !important;
+}
+
+ul[data-baseweb="menu"] {
+    background: #ffffff !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 9px !important;
+    padding: 5px !important;
+}
+
+/* Dropdown options */
+
+li[role="option"] {
+    background: #ffffff !important;
+    color: var(--ink) !important;
+    border-radius: 6px !important;
+    padding: 9px 12px !important;
+    transition: background 0.15s ease;
+}
+
+li[role="option"]:hover {
+    background: var(--hover) !important;
+    color: var(--teal-dark) !important;
+}
+
+li[aria-selected="true"] {
+    background: var(--teal-light) !important;
+    color: var(--teal-dark) !important;
+    font-weight: 700 !important;
+}
+
+/* ==========================================
+   MULTISELECT TAGS
+========================================== */
+
+div[data-baseweb="tag"] {
+    background: var(--teal) !important;
+    border: none !important;
+    border-radius: 6px !important;
+    color: #ffffff !important;
+}
+
+div[data-baseweb="tag"] span {
+    color: #ffffff !important;
+}
+
+div[data-baseweb="tag"] svg {
+    fill: #ffffff !important;
+}
+
+/* ==========================================
+   RADIO BUTTONS
+========================================== */
+
+.stMain [role="radiogroup"] label {
+    color: var(--ink) !important;
+}
+
+.stMain [role="radiogroup"] label p {
+    color: var(--ink) !important;
+    font-weight: 500 !important;
+}
+
+/* Radio selected circle */
+
+.stMain [role="radiogroup"] label:has(input:checked) {
+    color: var(--teal-dark) !important;
+}
+
+.stMain [role="radiogroup"] label:has(input:checked) p {
+    color: var(--teal-dark) !important;
+    font-weight: 700 !important;
+}
+
+/* ==========================================
+   CHECKBOXES
+========================================== */
+
+[data-testid="stCheckbox"] label p {
+    color: var(--ink) !important;
+    font-weight: 500 !important;
+}
+
+[data-testid="stCheckbox"] input:checked + div {
+    background-color: var(--teal) !important;
+    border-color: var(--teal) !important;
+}
+
+/* ==========================================
+   SLIDER
+========================================== */
+
+[data-testid="stSlider"] [data-baseweb="slider"] div[role="slider"] {
+    background: var(--teal) !important;
+    border-color: var(--teal) !important;
+    box-shadow: 0 0 0 2px rgba(15, 159, 147, 0.15) !important;
+}
+
+[data-testid="stSlider"] [data-baseweb="slider"] > div > div {
+    background: var(--teal) !important;
+}
+
+[data-testid="stSlider"] label p {
+    color: var(--ink) !important;
+    font-weight: 600 !important;
+}
+
+/* ==========================================
+   TEXT INPUTS AND TEXTAREA
+========================================== */
+
+.stTextInput input,
+.stNumberInput input,
+.stTextArea textarea,
+[data-testid="stDateInput"] input,
+[data-testid="stTimeInput"] input {
+    background: #ffffff !important;
+    color: var(--ink) !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 9px !important;
+    transition: border 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Input focus */
+
+.stTextInput input:focus,
+.stNumberInput input:focus,
+.stTextArea textarea:focus,
+[data-testid="stDateInput"] input:focus,
+[data-testid="stTimeInput"] input:focus {
+    border-color: var(--teal) !important;
+    box-shadow: 0 0 0 2px rgba(15, 159, 147, 0.13) !important;
+}
+
+/* Input labels */
+
+.stTextInput label,
+.stSelectbox label,
+.stMultiSelect label,
+.stNumberInput label,
+.stTextArea label,
+.stDateInput label,
+.stTimeInput label {
+    color: var(--navy) !important;
+    font-weight: 600 !important;
+}
+
+/* Placeholder text */
+
+.stTextInput input::placeholder,
+.stTextArea textarea::placeholder {
+    color: #94a3b8 !important;
 }
 
 /* ==========================================
    BUTTONS
-   ========================================== */
+========================================== */
 
 .stButton button,
 .stDownloadButton button,
 .stFormSubmitButton button {
     border-radius: 9px !important;
     font-weight: 650 !important;
-    transition: all 0.2s ease;
+    transition: all 0.2s ease !important;
 }
+
+/* Primary buttons */
 
 .stButton button[kind="primary"],
 .stFormSubmitButton button[kind="primary"] {
     background: var(--teal) !important;
-    border-color: var(--teal) !important;
+    border: 1px solid var(--teal) !important;
     color: #ffffff !important;
 }
 
@@ -212,18 +425,53 @@ h3 {
 .stFormSubmitButton button[kind="primary"]:hover {
     background: var(--teal-dark) !important;
     border-color: var(--teal-dark) !important;
+    color: #ffffff !important;
 }
 
+/* Secondary buttons */
+
+.stButton button[kind="secondary"],
+.stDownloadButton button {
+    background: #ffffff !important;
+    border: 1px solid #cbd5e1 !important;
+    color: var(--navy) !important;
+}
+
+.stButton button[kind="secondary"]:hover,
 .stDownloadButton button:hover {
+    background: var(--teal-light) !important;
     border-color: var(--teal) !important;
     color: var(--teal-dark) !important;
 }
 
-/* ==========================================
-   DATA ANALYSIS TABS - IMPORTANT FIX
-   ========================================== */
+/* Disabled buttons */
 
-/* Tab navigation bar */
+.stButton button:disabled,
+.stDownloadButton button:disabled {
+    opacity: 0.55 !important;
+    cursor: not-allowed !important;
+}
+
+/* ==========================================
+   DATAFRAMES AND TABLES
+========================================== */
+
+[data-testid="stDataFrame"] {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: #ffffff;
+}
+
+[data-testid="stTable"] {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+/* ==========================================
+   DATA ANALYSIS TABS
+========================================== */
 
 div[data-testid="stTabs"] [data-baseweb="tab-list"] {
     gap: 10px !important;
@@ -245,7 +493,7 @@ div[data-testid="stTabs"] button[data-baseweb="tab"] {
     transition: all 0.2s ease;
 }
 
-/* Force every tab label to remain visible */
+/* Tab labels */
 
 div[data-testid="stTabs"] button[data-baseweb="tab"] p,
 div[data-testid="stTabs"] button[data-baseweb="tab"] span,
@@ -265,7 +513,7 @@ div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="false"] {
 /* Hover tabs */
 
 div[data-testid="stTabs"] button[data-baseweb="tab"]:hover {
-    background: #e8f7f5 !important;
+    background: var(--teal-light) !important;
     color: var(--teal-dark) !important;
 }
 
@@ -277,7 +525,7 @@ div[data-testid="stTabs"] button[data-baseweb="tab"]:hover span {
 /* Active tab */
 
 div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] {
-    background: #e6f7f4 !important;
+    background: var(--teal-light) !important;
     color: var(--teal-dark) !important;
     border-bottom: 3px solid var(--teal) !important;
     font-weight: 700 !important;
@@ -293,14 +541,14 @@ div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] div {
     font-weight: 700 !important;
 }
 
-/* Remove Streamlit's default red underline */
+/* Tab underline */
 
 div[data-testid="stTabs"] [data-baseweb="tab-highlight"] {
     background-color: var(--teal) !important;
     height: 3px !important;
 }
 
-/* Remove default red focus styles */
+/* Tab focus */
 
 div[data-testid="stTabs"] button[data-baseweb="tab"]:focus {
     box-shadow: none !important;
@@ -320,8 +568,8 @@ div[data-testid="stTabs"] [data-baseweb="tab-panel"] {
 }
 
 /* ==========================================
-   FORMS AND INPUTS
-   ========================================== */
+   FORMS AND CONTAINERS
+========================================== */
 
 [data-testid="stForm"] {
     border: 1px solid var(--line);
@@ -330,17 +578,23 @@ div[data-testid="stTabs"] [data-baseweb="tab-panel"] {
     padding: 20px;
 }
 
-.stSelectbox [data-baseweb="select"] > div,
-.stTextInput input {
-    border-radius: 9px !important;
+[data-testid="stExpander"] {
+    border: 1px solid var(--line) !important;
+    border-radius: 10px !important;
+    background: #ffffff !important;
+}
+
+[data-testid="stExpander"] summary {
+    color: var(--navy) !important;
+    font-weight: 600 !important;
 }
 
 /* ==========================================
    ALERTS AND DIVIDERS
-   ========================================== */
+========================================== */
 
 [data-testid="stAlert"] {
-    border-radius: 10px;
+    border-radius: 10px !important;
 }
 
 hr {
@@ -348,10 +602,55 @@ hr {
 }
 
 /* ==========================================
+   FILE UPLOADER
+========================================== */
+
+[data-testid="stFileUploader"] {
+    border: 1px dashed #aab9cc !important;
+    border-radius: 12px !important;
+    background: rgba(255, 255, 255, 0.65) !important;
+}
+
+[data-testid="stFileUploader"] button {
+    background: var(--navy) !important;
+    color: #ffffff !important;
+    border-radius: 7px !important;
+    border-color: var(--navy) !important;
+}
+
+[data-testid="stFileUploader"] button:hover {
+    background: var(--teal) !important;
+    border-color: var(--teal) !important;
+}
+
+/* ==========================================
+   SCROLLBAR
+========================================== */
+
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #edf1f6;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #aab9cc;
+    border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--teal);
+}
+
+/* ==========================================
    RESPONSIVE DESIGN
-   ========================================== */
+========================================== */
 
 @media (max-width: 768px) {
+
     .block-container {
         padding: 1.1rem;
     }
