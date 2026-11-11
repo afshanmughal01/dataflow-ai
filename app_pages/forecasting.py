@@ -24,22 +24,60 @@ NAVY = "#14233f"
 # HELPER FUNCTIONS
 # =========================================================
 
+def make_unique_columns(columns):
+    """Make duplicate column names unique."""
+
+    seen = {}
+    new_columns = []
+
+    for column in columns:
+
+        name = str(column).strip()
+
+        if not name:
+            name = "Unnamed"
+
+        if name not in seen:
+            seen[name] = 0
+            new_columns.append(name)
+
+        else:
+            seen[name] += 1
+            new_name = f"{name}_{seen[name]}"
+
+            while new_name in seen:
+                seen[name] += 1
+                new_name = f"{name}_{seen[name]}"
+
+            seen[new_name] = 0
+            new_columns.append(new_name)
+
+    return new_columns
+
+
 def parse_dates(series):
     """Convert a Series into datetime values, supporting mixed formats."""
 
+    # First try mixed-format parsing
     try:
-        return pd.to_datetime(
+        parsed = pd.to_datetime(
             series,
             errors="coerce",
             format="mixed"
         )
 
+        # Some older Pandas versions may not parse mixed formats properly
+        if parsed.notna().any() or series.isna().all():
+            return parsed
+
     except (TypeError, ValueError):
-        # Compatibility fallback for older Pandas versions
-        return pd.to_datetime(
-            series,
-            errors="coerce"
-        )
+        pass
+
+    # Compatibility fallback
+    return pd.to_datetime(
+        series,
+        errors="coerce"
+    )
 
 
 def get_date_columns(df):
@@ -49,15 +87,20 @@ def get_date_columns(df):
 
     for col in df.columns:
 
-        if pd.api.types.is_datetime64_any_dtype(df[col]):
+        series = df[col]
+
+        if pd.api.types.is_datetime64_any_dtype(series):
             date_columns.append(col)
             continue
 
         # Avoid interpreting ordinary numeric columns as dates
-        if pd.api.types.is_numeric_dtype(df[col]):
+        if (
+            pd.api.types.is_numeric_dtype(series)
+            or pd.api.types.is_bool_dtype(series)
+        ):
             continue
 
-        parsed = parse_dates(df[col])
+        parsed = parse_dates(series)
 
         valid_ratio = parsed.notna().mean()
 
@@ -74,8 +117,14 @@ def get_numeric_columns(df):
 
     for col in df.columns:
 
+        series = df[col]
+
+        # Exclude Boolean columns
+        if pd.api.types.is_bool_dtype(series):
+            continue
+
         converted = pd.to_numeric(
-            df[col],
+            series,
             errors="coerce"
         )
 
@@ -101,6 +150,15 @@ def prepare_forecast_data(df, date_column, target_column):
         errors="coerce"
     )
 
+    # Replace infinite values with missing values
+    forecast_data[target_column] = forecast_data[
+        target_column
+    ].replace(
+        [np.inf, -np.inf],
+        np.nan
+    )
+
+    # Remove invalid dates and target values
     forecast_data = forecast_data.dropna(
         subset=[date_column, target_column]
     )
@@ -130,7 +188,7 @@ def aggregate_historical_data(
 def evaluate_model(historical_df):
     """Evaluate Linear Regression using chronological train/test splitting."""
 
-    values = historical_df["Actual"].values
+    values = historical_df["Actual"].to_numpy(dtype=float)
 
     # Reserve the final 20% of periods for testing
     test_size = max(
@@ -182,6 +240,9 @@ def evaluate_model(historical_df):
         if len(y_test) >= 2
         else None
     )
+
+    if r2 is not None and not np.isfinite(r2):
+        r2 = None
 
     return {
         "model": model,
@@ -239,10 +300,17 @@ def render_forecasting(df):
     # -----------------------------------------------------
 
     if df is None or df.empty:
-        st.warning("Please upload a dataset first.")
+
+        st.warning(
+            "Please upload a dataset first."
+        )
+
         return
 
     data = df.copy(deep=True)
+
+    # Handle duplicate column names
+    data.columns = make_unique_columns(data.columns)
 
     # -----------------------------------------------------
     # DETECT DATE AND NUMERIC COLUMNS
@@ -357,12 +425,22 @@ def render_forecasting(df):
     # AGGREGATE HISTORICAL DATA
     # -----------------------------------------------------
 
-    historical = aggregate_historical_data(
-        forecast_data,
-        date_column,
-        target_column,
-        resample_frequency
-    )
+    try:
+
+        historical = aggregate_historical_data(
+            forecast_data,
+            date_column,
+            target_column,
+            resample_frequency
+        )
+
+    except (ValueError, TypeError) as error:
+
+        st.error(
+            f"Unable to aggregate historical data: {error}"
+        )
+
+        return
 
     if len(historical) < 5:
 
@@ -417,7 +495,7 @@ def render_forecasting(df):
         len(historical_df)
     ).reshape(-1, 1)
 
-    y_full = historical_df["Actual"].values
+    y_full = historical_df["Actual"].to_numpy(dtype=float)
 
     final_model = LinearRegression()
 
@@ -443,11 +521,21 @@ def render_forecasting(df):
         future_X
     )
 
-    future_dates = pd.date_range(
-        start=historical.index[-1],
-        periods=int(forecast_periods) + 1,
-        freq=resample_frequency
-    )[1:]
+    try:
+
+        future_dates = pd.date_range(
+            start=historical.index[-1],
+            periods=int(forecast_periods) + 1,
+            freq=resample_frequency
+        )[1:]
+
+    except (ValueError, TypeError) as error:
+
+        st.error(
+            f"Unable to generate future dates: {error}"
+        )
+
+        return
 
     forecast_df = pd.DataFrame({
         "Date": future_dates,
@@ -573,8 +661,19 @@ def render_forecasting(df):
         test_results["Actual"] - test_results["Predicted"]
     )
 
+    # Round only numeric columns to avoid datetime warnings
+    test_results_display = test_results.copy()
+
+    numeric_cols = test_results_display.select_dtypes(
+        include=["number"]
+    ).columns
+
+    test_results_display[numeric_cols] = (
+        test_results_display[numeric_cols].round(2)
+    )
+
     st.dataframe(
-        test_results.round(2),
+        test_results_display,
         width="stretch",
         hide_index=True
     )

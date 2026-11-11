@@ -17,6 +17,37 @@ NAVY = "#14233f"
 # HELPER FUNCTIONS
 # =========================================================
 
+def make_unique_columns(columns):
+    """Make duplicate column names unique."""
+
+    seen = {}
+    new_columns = []
+
+    for column in columns:
+
+        name = str(column).strip()
+
+        if not name:
+            name = "Unnamed"
+
+        if name not in seen:
+            seen[name] = 0
+            new_columns.append(name)
+
+        else:
+            seen[name] += 1
+            new_name = f"{name}_{seen[name]}"
+
+            while new_name in seen:
+                seen[name] += 1
+                new_name = f"{name}_{seen[name]}"
+
+            seen[new_name] = 0
+            new_columns.append(new_name)
+
+    return new_columns
+
+
 def get_numeric_columns(df):
     """Detect numeric columns, including numbers stored as text."""
 
@@ -24,8 +55,14 @@ def get_numeric_columns(df):
 
     for column in df.columns:
 
+        series = df[column]
+
+        # Exclude Boolean columns from numerical analysis
+        if pd.api.types.is_bool_dtype(series):
+            continue
+
         converted = pd.to_numeric(
-            df[column],
+            series,
             errors="coerce"
         )
 
@@ -42,10 +79,12 @@ def get_categorical_columns(df):
 
     for column in df.columns:
 
+        series = df[column]
+
         if (
-            pd.api.types.is_object_dtype(df[column])
-            or isinstance(df[column].dtype, pd.CategoricalDtype)
-            or pd.api.types.is_bool_dtype(df[column])
+            pd.api.types.is_object_dtype(series)
+            or isinstance(series.dtype, pd.CategoricalDtype)
+            or pd.api.types.is_bool_dtype(series)
         ):
             categorical_columns.append(column)
 
@@ -151,11 +190,12 @@ def get_correlation_pairs(correlation):
                 pairs.append({
                     "Metric 1": column_a,
                     "Metric 2": column_b,
-                    "Correlation": value,
-                    "Absolute Correlation": abs(value)
+                    "Correlation": float(value),
+                    "Absolute Correlation": abs(float(value))
                 })
 
     if not pairs:
+
         return pd.DataFrame(
             columns=[
                 "Metric 1",
@@ -207,6 +247,10 @@ def render_business_insights(df):
 
     data = df.copy(deep=True)
 
+    # Handle duplicate column names
+    data.columns = make_unique_columns(data.columns)
+
+    # Detect column types
     numeric_columns = get_numeric_columns(data)
 
     categorical_columns = get_categorical_columns(data)
@@ -261,12 +305,12 @@ def render_business_insights(df):
 
         if not metric_data.empty:
 
-            total_value = metric_data.sum()
-            average_value = metric_data.mean()
-            maximum_value = metric_data.max()
-            minimum_value = metric_data.min()
-            median_value = metric_data.median()
-            standard_deviation = metric_data.std()
+            total_value = float(metric_data.sum())
+            average_value = float(metric_data.mean())
+            maximum_value = float(metric_data.max())
+            minimum_value = float(metric_data.min())
+            median_value = float(metric_data.median())
+            standard_deviation = float(metric_data.std())
 
             col1, col2, col3, col4 = st.columns(4)
 
@@ -342,8 +386,16 @@ def render_business_insights(df):
                     ]
                 })
 
+                # Keep Value column numeric and consistent
+                summary["Value"] = pd.to_numeric(
+                    summary["Value"],
+                    errors="coerce"
+                ).astype("float64")
+
+                summary["Value"] = summary["Value"].round(2)
+
                 st.dataframe(
-                    summary.round(2),
+                    summary,
                     width="stretch",
                     hide_index=True
                 )
@@ -410,7 +462,7 @@ def render_business_insights(df):
 
             total_categories = len(performance)
 
-            performance = performance.head(15)
+            performance = performance.head(15).copy()
 
             fig = px.bar(
                 performance,
@@ -448,8 +500,19 @@ def render_business_insights(df):
                 f"{total_categories:,} categories."
             )
 
+            # Round only numeric columns
+            numeric_cols = performance.select_dtypes(
+                include=["number"]
+            ).columns
+
+            performance_display = performance.copy()
+
+            performance_display[numeric_cols] = (
+                performance_display[numeric_cols].round(2)
+            )
+
             st.dataframe(
-                performance.round(2),
+                performance_display,
                 width="stretch",
                 hide_index=True
             )
@@ -603,10 +666,16 @@ def render_business_insights(df):
                     "**Strongest Metric Relationships**"
                 )
 
+                pairs_display = pairs_df.drop(
+                    columns=["Absolute Correlation"]
+                ).copy()
+
+                pairs_display["Correlation"] = (
+                    pairs_display["Correlation"].round(3)
+                )
+
                 st.dataframe(
-                    pairs_df.drop(
-                        columns=["Absolute Correlation"]
-                    ).round(3).head(10),
+                    pairs_display.head(10),
                     width="stretch",
                     hide_index=True
                 )
