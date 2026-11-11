@@ -17,6 +17,24 @@ MUTED = "#64748b"
 # HELPER FUNCTIONS
 # =========================================================
 
+def parse_dates(series):
+    """Convert a Series into datetime values, supporting mixed formats."""
+
+    try:
+        return pd.to_datetime(
+            series,
+            errors="coerce",
+            format="mixed"
+        )
+
+    except (TypeError, ValueError):
+        # Compatibility fallback for older Pandas versions
+        return pd.to_datetime(
+            series,
+            errors="coerce"
+        )
+
+
 def detect_date_columns(df):
     """Detect columns containing valid date values."""
 
@@ -32,10 +50,7 @@ def detect_date_columns(df):
         if pd.api.types.is_numeric_dtype(df[col]):
             continue
 
-        converted = pd.to_datetime(
-            df[col],
-            errors="coerce"
-        )
+        converted = parse_dates(df[col])
 
         valid_ratio = converted.notna().mean()
 
@@ -145,10 +160,7 @@ def render_dashboard(df):
                 key="dashboard_date_column"
             )
 
-            parsed_dates = pd.to_datetime(
-                data[selected_date],
-                errors="coerce"
-            )
+            parsed_dates = parse_dates(data[selected_date])
 
             valid_dates = parsed_dates.dropna()
 
@@ -165,7 +177,10 @@ def render_dashboard(df):
                     key="dashboard_date_range"
                 )
 
-                if isinstance(date_range, (tuple, list)) and len(date_range) == 2:
+                if (
+                    isinstance(date_range, (tuple, list))
+                    and len(date_range) == 2
+                ):
 
                     start_date, end_date = date_range
 
@@ -375,7 +390,7 @@ def render_dashboard(df):
 
             st.plotly_chart(
                 fig,
-                use_container_width=True
+                width="stretch"
             )
 
         else:
@@ -415,7 +430,7 @@ def render_dashboard(df):
 
             st.plotly_chart(
                 fig,
-                use_container_width=True
+                width="stretch"
             )
 
         else:
@@ -453,9 +468,8 @@ def render_dashboard(df):
 
         trend_data = data[[trend_date, trend_numeric]].copy()
 
-        trend_data[trend_date] = pd.to_datetime(
-            trend_data[trend_date],
-            errors="coerce"
+        trend_data[trend_date] = parse_dates(
+            trend_data[trend_date]
         )
 
         trend_data[trend_numeric] = pd.to_numeric(
@@ -494,7 +508,7 @@ def render_dashboard(df):
 
             st.plotly_chart(
                 fig,
-                use_container_width=True
+                width="stretch"
             )
 
         else:
