@@ -674,3 +674,34 @@ hr {
         white-space: nowrap;
     }
 }
+
+/* Fix recommendation card text visibility */
+div[style*="#fff7d6"],
+div[style*="#fff7d6"] * {
+    color: #594300 !important;
+    -webkit-text-fill-color: #594300 !important;
+    opacity: 1 !important;
+}
+
+div[style*="#fff7d6"] span:first-child {
+    color: #9a6700 !important;
+    -webkit-text-fill-color: #9a6700 !important;
+}
+/* Improve main content heading visibility */
+.stApp h1,
+.stApp h2,
+.stApp h3,
+.stApp h4 {
+    color: #14233f !important;
+    -webkit-text-fill-color: #14233f !important;
+    opacity: 1 !important;
+}
+
+/* Improve sidebar button visibility */
+[data-testid="stSidebar"] .stButton button {
+    background-color: #ffffff !important;
+    color: #14233f !important;
+    -webkit-text-fill-color: #14233f !important;
+    border: 1px solid #dbe4f0 !important;
+    font-weight: 600 !important;
+}
