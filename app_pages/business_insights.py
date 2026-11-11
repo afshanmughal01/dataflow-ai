@@ -1,11 +1,182 @@
 
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.express as px
 
 
 # =========================================================
-# BUSINESS INSIGHTS PAGE
+# BUSINESS INSIGHTS CONFIGURATION
+# =========================================================
+
+TEAL = "#0f9f93"
+NAVY = "#14233f"
+
+
+# =========================================================
+# HELPER FUNCTIONS
+# =========================================================
+
+def get_numeric_columns(df):
+    """Detect numeric columns, including numbers stored as text."""
+
+    numeric_columns = []
+
+    for column in df.columns:
+
+        converted = pd.to_numeric(
+            df[column],
+            errors="coerce"
+        )
+
+        if converted.notna().any():
+            numeric_columns.append(column)
+
+    return numeric_columns
+
+
+def get_categorical_columns(df):
+    """Detect categorical columns."""
+
+    categorical_columns = []
+
+    for column in df.columns:
+
+        if (
+            pd.api.types.is_object_dtype(df[column])
+            or isinstance(df[column].dtype, pd.CategoricalDtype)
+            or pd.api.types.is_bool_dtype(df[column])
+        ):
+            categorical_columns.append(column)
+
+    return categorical_columns
+
+
+def prepare_numeric_series(series):
+    """Convert a Series into valid numeric values."""
+
+    return pd.to_numeric(
+        series,
+        errors="coerce"
+    )
+
+
+def format_number(value):
+    """Format numeric values for display."""
+
+    if pd.isna(value):
+        return "N/A"
+
+    return f"{value:,.2f}"
+
+
+def prepare_category_data(df, category_column, metric_column):
+    """Prepare category and metric data for comparison."""
+
+    category_data = df[
+        [category_column, metric_column]
+    ].copy()
+
+    category_data[metric_column] = prepare_numeric_series(
+        category_data[metric_column]
+    )
+
+    category_data[category_column] = (
+        category_data[category_column]
+        .astype("string")
+        .fillna("Missing")
+    )
+
+    category_data = category_data.dropna(
+        subset=[metric_column]
+    )
+
+    return category_data
+
+
+def calculate_correlation(df, numeric_columns):
+    """Calculate correlations using valid, non-constant numeric columns."""
+
+    numeric_data = pd.DataFrame(index=df.index)
+
+    for column in numeric_columns:
+
+        numeric_data[column] = prepare_numeric_series(
+            df[column]
+        )
+
+    # Remove columns with no valid numeric values
+    numeric_data = numeric_data.dropna(
+        axis=1,
+        how="all"
+    )
+
+    # Remove constant columns
+    valid_columns = [
+        column
+        for column in numeric_data.columns
+        if numeric_data[column].nunique(dropna=True) > 1
+    ]
+
+    numeric_data = numeric_data[valid_columns]
+
+    correlation = numeric_data.corr(
+        method="pearson"
+    )
+
+    return numeric_data, correlation
+
+
+def get_correlation_pairs(correlation):
+    """Get unique metric relationships."""
+
+    pairs = []
+
+    columns = correlation.columns.tolist()
+
+    for i in range(len(columns)):
+
+        for j in range(i + 1, len(columns)):
+
+            column_a = columns[i]
+            column_b = columns[j]
+
+            value = correlation.loc[
+                column_a,
+                column_b
+            ]
+
+            if pd.notna(value):
+
+                pairs.append({
+                    "Metric 1": column_a,
+                    "Metric 2": column_b,
+                    "Correlation": value,
+                    "Absolute Correlation": abs(value)
+                })
+
+    if not pairs:
+        return pd.DataFrame(
+            columns=[
+                "Metric 1",
+                "Metric 2",
+                "Correlation",
+                "Absolute Correlation"
+            ]
+        )
+
+    return (
+        pd.DataFrame(pairs)
+        .sort_values(
+            "Absolute Correlation",
+            ascending=False
+        )
+        .reset_index(drop=True)
+    )
+
+
+# =========================================================
+# MAIN BUSINESS INSIGHTS PAGE
 # =========================================================
 
 def render_business_insights(df):
@@ -27,18 +198,18 @@ def render_business_insights(df):
     # -----------------------------------------------------
 
     if df is None or df.empty:
-        st.warning("Please upload a dataset first.")
+
+        st.warning(
+            "Please upload a dataset first."
+        )
+
         return
 
-    data = df.copy()
+    data = df.copy(deep=True)
 
-    numeric_columns = data.select_dtypes(
-        include="number"
-    ).columns.tolist()
+    numeric_columns = get_numeric_columns(data)
 
-    categorical_columns = data.select_dtypes(
-        include=["object", "category", "bool"]
-    ).columns.tolist()
+    categorical_columns = get_categorical_columns(data)
 
     # -----------------------------------------------------
     # DATASET OVERVIEW
@@ -48,13 +219,25 @@ def render_business_insights(df):
 
     col1, col2, col3, col4 = st.columns(4)
 
-    col1.metric("Total Records", f"{len(data):,}")
+    col1.metric(
+        "Total Records",
+        f"{len(data):,}"
+    )
 
-    col2.metric("Total Columns", f"{len(data.columns):,}")
+    col2.metric(
+        "Total Columns",
+        f"{len(data.columns):,}"
+    )
 
-    col3.metric("Numeric Fields", f"{len(numeric_columns):,}")
+    col3.metric(
+        "Numeric Fields",
+        f"{len(numeric_columns):,}"
+    )
 
-    col4.metric("Categorical Fields", f"{len(categorical_columns):,}")
+    col4.metric(
+        "Categorical Fields",
+        f"{len(categorical_columns):,}"
+    )
 
     st.divider()
 
@@ -68,12 +251,12 @@ def render_business_insights(df):
 
         selected_metric = st.selectbox(
             "Select a business metric",
-            numeric_columns
+            numeric_columns,
+            key="business_numeric_metric"
         )
 
-        metric_data = pd.to_numeric(
-            data[selected_metric],
-            errors="coerce"
+        metric_data = prepare_numeric_series(
+            data[selected_metric]
         ).dropna()
 
         if not metric_data.empty:
@@ -83,27 +266,28 @@ def render_business_insights(df):
             maximum_value = metric_data.max()
             minimum_value = metric_data.min()
             median_value = metric_data.median()
+            standard_deviation = metric_data.std()
 
             col1, col2, col3, col4 = st.columns(4)
 
             col1.metric(
                 "Total",
-                f"{total_value:,.2f}"
+                format_number(total_value)
             )
 
             col2.metric(
                 "Average",
-                f"{average_value:,.2f}"
+                format_number(average_value)
             )
 
             col3.metric(
                 "Maximum",
-                f"{maximum_value:,.2f}"
+                format_number(maximum_value)
             )
 
             col4.metric(
                 "Minimum",
-                f"{minimum_value:,.2f}"
+                format_number(minimum_value)
             )
 
             col1, col2 = st.columns(2)
@@ -112,18 +296,27 @@ def render_business_insights(df):
 
                 st.markdown("**Metric Distribution**")
 
+                distribution_data = pd.DataFrame({
+                    selected_metric: metric_data
+                })
+
                 fig = px.histogram(
-                    metric_data,
+                    distribution_data,
                     x=selected_metric,
                     nbins=30,
-                    template="plotly_white"
+                    template="plotly_white",
+                    color_discrete_sequence=[TEAL]
                 )
 
-                fig.update_layout(height=350)
+                fig.update_layout(
+                    height=350,
+                    xaxis_title=selected_metric,
+                    yaxis_title="Number of Records"
+                )
 
                 st.plotly_chart(
                     fig,
-                    use_container_width=True
+                    width="stretch"
                 )
 
             with col2:
@@ -145,15 +338,21 @@ def render_business_insights(df):
                         median_value,
                         maximum_value,
                         minimum_value,
-                        metric_data.std()
+                        standard_deviation
                     ]
                 })
 
                 st.dataframe(
                     summary.round(2),
-                    use_container_width=True,
+                    width="stretch",
                     hide_index=True
                 )
+
+        else:
+
+            st.info(
+                "The selected metric does not contain valid numeric values."
+            )
 
     else:
 
@@ -177,7 +376,8 @@ def render_business_insights(df):
 
             category_column = st.selectbox(
                 "Select Category",
-                categorical_columns
+                categorical_columns,
+                key="business_category_column"
             )
 
         with col2:
@@ -188,28 +388,27 @@ def render_business_insights(df):
                 key="business_category_metric"
             )
 
-        category_data = data[
-            [category_column, category_metric]
-        ].copy()
-
-        category_data[category_metric] = pd.to_numeric(
-            category_data[category_metric],
-            errors="coerce"
-        )
-
-        category_data = category_data.dropna(
-            subset=[category_column, category_metric]
+        category_data = prepare_category_data(
+            data,
+            category_column,
+            category_metric
         )
 
         if not category_data.empty:
 
             performance = (
                 category_data
-                .groupby(category_column)[category_metric]
+                .groupby(
+                    category_column,
+                    dropna=False,
+                    observed=True
+                )[category_metric]
                 .sum()
                 .sort_values(ascending=False)
                 .reset_index()
             )
+
+            total_categories = len(performance)
 
             performance = performance.head(15)
 
@@ -225,27 +424,33 @@ def render_business_insights(df):
 
             fig.update_layout(
                 height=400,
-                showlegend=False
+                showlegend=False,
+                xaxis_title=category_column,
+                yaxis_title=category_metric
             )
 
             st.plotly_chart(
                 fig,
-                use_container_width=True
+                width="stretch"
             )
 
-            if len(performance) > 0:
+            # Top category
+            top_category = performance.iloc[0]
 
-                top_category = performance.iloc[0]
+            st.success(
+                f"Top category: **{top_category[category_column]}** "
+                f"with {category_metric} of "
+                f"**{top_category[category_metric]:,.2f}**."
+            )
 
-                st.success(
-                    f"Top category: **{top_category[category_column]}** "
-                    f"with {category_metric} of "
-                    f"**{top_category[category_metric]:,.2f}**."
-                )
+            st.caption(
+                f"Showing the top {len(performance)} of "
+                f"{total_categories:,} categories."
+            )
 
             st.dataframe(
-                performance,
-                use_container_width=True,
+                performance.round(2),
+                width="stretch",
                 hide_index=True
             )
 
@@ -278,19 +483,19 @@ def render_business_insights(df):
             key="business_distribution_column"
         )
 
-        distribution = (
+        distribution_values = (
             data[distribution_column]
+            .astype("string")
             .fillna("Missing")
-            .astype(str)
-            .value_counts()
-            .head(15)
-            .reset_index()
         )
 
-        distribution.columns = [
-            "Category",
-            "Records"
-        ]
+        distribution = (
+            distribution_values
+            .value_counts()
+            .head(15)
+            .rename_axis("Category")
+            .reset_index(name="Records")
+        )
 
         col1, col2 = st.columns(2)
 
@@ -302,14 +507,17 @@ def render_business_insights(df):
                 values="Records",
                 hole=0.45,
                 title="Category Share",
-                template="plotly_white"
+                template="plotly_white",
+                color_discrete_sequence=px.colors.sequential.Teal
             )
 
-            fig.update_layout(height=380)
+            fig.update_layout(
+                height=380
+            )
 
             st.plotly_chart(
                 fig,
-                use_container_width=True
+                width="stretch"
             )
 
         with col2:
@@ -320,18 +528,27 @@ def render_business_insights(df):
                 y="Category",
                 orientation="h",
                 title="Category Record Count",
-                template="plotly_white"
+                template="plotly_white",
+                color_discrete_sequence=[TEAL]
             )
 
             fig.update_layout(
                 height=380,
-                yaxis={"categoryorder": "total ascending"}
+                yaxis={
+                    "categoryorder": "total ascending"
+                }
             )
 
             st.plotly_chart(
                 fig,
-                use_container_width=True
+                width="stretch"
             )
+
+        st.dataframe(
+            distribution,
+            width="stretch",
+            hide_index=True
+        )
 
     else:
 
@@ -349,78 +566,80 @@ def render_business_insights(df):
 
     if len(numeric_columns) >= 2:
 
-        correlation = data[numeric_columns].corr(
-            numeric_only=True
+        numeric_data, correlation = calculate_correlation(
+            data,
+            numeric_columns
         )
 
-        fig = px.imshow(
-            correlation,
-            text_auto=".2f",
-            color_continuous_scale="RdBu_r",
-            zmin=-1,
-            zmax=1,
-            title="Metric Correlation Matrix",
-            template="plotly_white"
-        )
+        if correlation.shape[1] >= 2:
 
-        fig.update_layout(height=500)
-
-        st.plotly_chart(
-            fig,
-            use_container_width=True
-        )
-
-        # Find strongest unique relationship
-        pairs = []
-
-        for i in range(len(numeric_columns)):
-
-            for j in range(i + 1, len(numeric_columns)):
-
-                col_a = numeric_columns[i]
-                col_b = numeric_columns[j]
-
-                value = correlation.loc[col_a, col_b]
-
-                if pd.notna(value):
-
-                    pairs.append({
-                        "Metric 1": col_a,
-                        "Metric 2": col_b,
-                        "Correlation": value
-                    })
-
-        if pairs:
-
-            pairs_df = pd.DataFrame(pairs)
-
-            pairs_df["Absolute Correlation"] = (
-                pairs_df["Correlation"].abs()
+            fig = px.imshow(
+                correlation,
+                text_auto=".2f",
+                color_continuous_scale="RdBu_r",
+                zmin=-1,
+                zmax=1,
+                title="Metric Correlation Matrix",
+                template="plotly_white"
             )
 
-            pairs_df = pairs_df.sort_values(
-                "Absolute Correlation",
-                ascending=False
+            fig.update_layout(
+                height=500
             )
 
-            st.markdown("**Strongest Metric Relationships**")
-
-            st.dataframe(
-                pairs_df.drop(
-                    columns=["Absolute Correlation"]
-                ).round(3).head(10),
-                use_container_width=True,
-                hide_index=True
+            st.plotly_chart(
+                fig,
+                width="stretch"
             )
 
-            strongest = pairs_df.iloc[0]
+            # Find strongest relationships
+            pairs_df = get_correlation_pairs(
+                correlation
+            )
+
+            if not pairs_df.empty:
+
+                st.markdown(
+                    "**Strongest Metric Relationships**"
+                )
+
+                st.dataframe(
+                    pairs_df.drop(
+                        columns=["Absolute Correlation"]
+                    ).round(3).head(10),
+                    width="stretch",
+                    hide_index=True
+                )
+
+                strongest = pairs_df.iloc[0]
+
+                relationship_type = (
+                    "positive"
+                    if strongest["Correlation"] > 0
+                    else "negative"
+                )
+
+                st.info(
+                    f"Strongest observed relationship: "
+                    f"**{strongest['Metric 1']}** and "
+                    f"**{strongest['Metric 2']}** "
+                    f"have a {relationship_type} correlation of "
+                    f"**{strongest['Correlation']:.2f}**. "
+                    "Correlation does not establish causation."
+                )
+
+            else:
+
+                st.info(
+                    "No meaningful relationships could be calculated "
+                    "between the selected numeric columns."
+                )
+
+        else:
 
             st.info(
-                f"Strongest observed relationship: "
-                f"**{strongest['Metric 1']}** and "
-                f"**{strongest['Metric 2']}** "
-                f"(correlation: {strongest['Correlation']:.2f}). "
-                "Correlation does not establish causation."
+                "At least two non-constant numeric columns with valid "
+                "values are required for correlation analysis."
             )
 
     else:
@@ -439,13 +658,21 @@ def render_business_insights(df):
 
     observations = []
 
+    total_cells = max(data.size, 1)
+
+    missing_cells = int(
+        data.isna().sum().sum()
+    )
+
     missing_percentage = (
-        data.isna().sum().sum() /
-        max(data.size, 1)
+        missing_cells / total_cells
     ) * 100
 
-    duplicate_count = int(data.duplicated().sum())
+    duplicate_count = int(
+        data.duplicated().sum()
+    )
 
+    # Missing values
     if missing_percentage > 0:
 
         observations.append(
@@ -459,6 +686,7 @@ def render_business_insights(df):
             "No missing cells were detected in the dataset."
         )
 
+    # Duplicate rows
     if duplicate_count > 0:
 
         observations.append(
@@ -472,13 +700,13 @@ def render_business_insights(df):
             "No duplicate rows were detected."
         )
 
+    # Numeric observations
     if numeric_columns:
 
         for column in numeric_columns:
 
-            values = pd.to_numeric(
-                data[column],
-                errors="coerce"
+            values = prepare_numeric_series(
+                data[column]
             ).dropna()
 
             if values.empty:
@@ -497,6 +725,7 @@ def render_business_insights(df):
                     f"Column '{column}' has only one distinct numeric value."
                 )
 
+    # Display observations
     for index, observation in enumerate(
         observations,
         start=1
@@ -521,13 +750,19 @@ def render_business_insights(df):
 
     report_lines = [
         "DATAFLOW AI - BUSINESS INSIGHTS REPORT",
+        "=" * 45,
         "",
-        f"Total Records: {len(data)}",
-        f"Total Columns: {len(data.columns)}",
-        f"Missing Cells: {int(data.isna().sum().sum())}",
-        f"Duplicate Rows: {duplicate_count}",
+        "DATASET OVERVIEW",
+        f"Total Records: {len(data):,}",
+        f"Total Columns: {len(data.columns):,}",
+        f"Numeric Fields: {len(numeric_columns):,}",
+        f"Categorical Fields: {len(categorical_columns):,}",
+        f"Missing Cells: {missing_cells:,}",
+        f"Missing Percentage: {missing_percentage:.2f}%",
+        f"Duplicate Rows: {duplicate_count:,}",
         "",
-        "AUTOMATIC OBSERVATIONS"
+        "AUTOMATIC OBSERVATIONS",
+        "-" * 30
     ]
 
     for index, observation in enumerate(
@@ -543,10 +778,10 @@ def render_business_insights(df):
 
     st.download_button(
         "Download Business Insights Report",
-        data=report_text,
+        data=report_text.encode("utf-8-sig"),
         file_name="business_insights_report.txt",
         mime="text/plain",
-        use_container_width=True
+        width="stretch"
     )
 
     st.caption(

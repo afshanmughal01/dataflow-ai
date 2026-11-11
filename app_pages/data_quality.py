@@ -5,7 +5,62 @@ import plotly.express as px
 
 
 # =========================================================
-# DATA QUALITY PAGE
+# DATA QUALITY CONFIGURATION
+# =========================================================
+
+TEAL = "#0f9f93"
+NAVY = "#14233f"
+
+
+# =========================================================
+# HELPER FUNCTIONS
+# =========================================================
+
+def calculate_percentage(part, total):
+    """Calculate percentage safely."""
+
+    if total == 0:
+        return 0.0
+
+    return (part / total) * 100
+
+
+def get_constant_columns(df):
+    """Identify columns containing one or zero distinct values."""
+
+    constant_columns = []
+
+    for col in df.columns:
+
+        unique_count = df[col].nunique(dropna=False)
+
+        if unique_count <= 1:
+            constant_columns.append(col)
+
+    return constant_columns
+
+
+def get_cardinality_report(df):
+    """Generate a column cardinality report."""
+
+    total_rows = len(df)
+
+    unique_counts = df.nunique(dropna=True)
+
+    cardinality_report = pd.DataFrame({
+        "Column": df.columns.astype(str),
+        "Unique Values": unique_counts.values,
+        "Unique Percentage": [
+            calculate_percentage(count, total_rows)
+            for count in unique_counts.values
+        ]
+    })
+
+    return cardinality_report
+
+
+# =========================================================
+# MAIN DATA QUALITY PAGE
 # =========================================================
 
 def render_data_quality(df):
@@ -30,7 +85,7 @@ def render_data_quality(df):
         st.warning("Please upload a dataset first.")
         return
 
-    data = df.copy()
+    data = df.copy(deep=True)
 
     total_rows = len(data)
     total_columns = len(data.columns)
@@ -41,19 +96,24 @@ def render_data_quality(df):
     # -----------------------------------------------------
 
     missing_cells = int(data.isna().sum().sum())
+
     duplicate_rows = int(data.duplicated().sum())
 
     completeness = (
-        (1 - missing_cells / total_cells) * 100
-        if total_cells else 0
+        calculate_percentage(
+            total_cells - missing_cells,
+            total_cells
+        )
     )
 
     uniqueness = (
-        (1 - duplicate_rows / total_rows) * 100
-        if total_rows else 0
+        calculate_percentage(
+            total_rows - duplicate_rows,
+            total_rows
+        )
     )
 
-    # Basic completeness and uniqueness score
+    # Basic quality score based on completeness and uniqueness
     quality_score = (completeness + uniqueness) / 2
 
     st.markdown("### Quality Overview")
@@ -80,9 +140,8 @@ def render_data_quality(df):
         f"{duplicate_rows:,}"
     )
 
-    # Quality score visualization
     st.progress(
-        int(round(quality_score)),
+        min(100, max(0, int(round(quality_score)))),
         text=f"Overall quality indicator: {quality_score:.1f}%"
     )
 
@@ -90,6 +149,23 @@ def render_data_quality(df):
         "This is a basic indicator based on completeness and row uniqueness, "
         "not a universal data-quality standard."
     )
+
+    # Quality score breakdown
+    score_col1, score_col2 = st.columns(2)
+
+    with score_col1:
+        st.markdown("**Completeness Score**")
+        st.progress(
+            int(round(completeness)),
+            text=f"{completeness:.1f}%"
+        )
+
+    with score_col2:
+        st.markdown("**Row Uniqueness Score**")
+        st.progress(
+            int(round(uniqueness)),
+            text=f"{uniqueness:.1f}%"
+        )
 
     st.divider()
 
@@ -100,7 +176,7 @@ def render_data_quality(df):
     st.markdown("### 1. Missing Value Analysis")
 
     missing_report = pd.DataFrame({
-        "Column": data.columns,
+        "Column": data.columns.astype(str),
         "Missing Values": data.isna().sum().values,
         "Missing Percentage": (
             data.isna().mean().values * 100
@@ -112,17 +188,17 @@ def render_data_quality(df):
         ascending=False
     )
 
-    if missing_cells > 0:
+    affected_columns = missing_report[
+        missing_report["Missing Values"] > 0
+    ]
 
-        affected_columns = missing_report[
-            missing_report["Missing Values"] > 0
-        ]
+    if not affected_columns.empty:
 
         fig = px.bar(
             affected_columns,
             x="Column",
             y="Missing Percentage",
-            color_discrete_sequence=["#0f9f93"],
+            color_discrete_sequence=[TEAL],
             template="plotly_white"
         )
 
@@ -134,12 +210,12 @@ def render_data_quality(df):
 
         st.plotly_chart(
             fig,
-            use_container_width=True
+            width="stretch"
         )
 
         st.dataframe(
             affected_columns.round(2),
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )
 
@@ -167,7 +243,7 @@ def render_data_quality(df):
 
         st.dataframe(
             duplicate_data.head(100),
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )
 
@@ -200,7 +276,7 @@ def render_data_quality(df):
 
     st.dataframe(
         dtype_report,
-        use_container_width=True,
+        width="stretch",
         hide_index=True
     )
 
@@ -208,13 +284,9 @@ def render_data_quality(df):
     dtype_counts = (
         data.dtypes.astype(str)
         .value_counts()
-        .reset_index()
+        .rename_axis("Data Type")
+        .reset_index(name="Column Count")
     )
-
-    dtype_counts.columns = [
-        "Data Type",
-        "Column Count"
-    ]
 
     col1, col2 = st.columns(2)
 
@@ -234,7 +306,7 @@ def render_data_quality(df):
 
         st.plotly_chart(
             fig,
-            use_container_width=True
+            width="stretch"
         )
 
     with col2:
@@ -245,10 +317,11 @@ def render_data_quality(df):
             f"Total columns: **{total_columns}**"
         )
 
-        for dtype, count in dtype_counts.values:
+        for _, row in dtype_counts.iterrows():
 
             st.write(
-                f"• {dtype}: **{count} columns**"
+                f"• {row['Data Type']}: "
+                f"**{row['Column Count']} columns**"
             )
 
     st.divider()
@@ -259,10 +332,7 @@ def render_data_quality(df):
 
     st.markdown("### 4. Constant Columns")
 
-    constant_columns = [
-        col for col in data.columns
-        if data[col].nunique(dropna=False) <= 1
-    ]
+    constant_columns = get_constant_columns(data)
 
     if constant_columns:
 
@@ -271,7 +341,13 @@ def render_data_quality(df):
             "only one distinct value."
         )
 
-        st.write(constant_columns)
+        st.dataframe(
+            pd.DataFrame({
+                "Constant Column": constant_columns
+            }),
+            width="stretch",
+            hide_index=True
+        )
 
         st.caption(
             "These columns may provide little analytical value."
@@ -289,14 +365,7 @@ def render_data_quality(df):
 
     st.markdown("### 5. High Cardinality Columns")
 
-    cardinality_report = pd.DataFrame({
-        "Column": data.columns,
-        "Unique Values": data.nunique(dropna=True).values,
-        "Unique Percentage": (
-            data.nunique(dropna=True).values /
-            max(total_rows, 1) * 100
-        )
-    })
+    cardinality_report = get_cardinality_report(data)
 
     high_cardinality = cardinality_report[
         cardinality_report["Unique Percentage"] >= 90
@@ -311,7 +380,7 @@ def render_data_quality(df):
 
         st.dataframe(
             high_cardinality.round(2),
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )
 
@@ -378,34 +447,46 @@ def render_data_quality(df):
                 f"**{index}.** {recommendation}"
             )
 
+    st.divider()
+
     # -----------------------------------------------------
     # DOWNLOAD QUALITY REPORT
     # -----------------------------------------------------
 
-    st.divider()
-
     st.markdown("### Download Quality Report")
 
-    report = dtype_report.merge(
-        missing_report,
-        on="Column",
-        how="left"
-    ).merge(
-        cardinality_report,
-        on="Column",
-        how="left"
+    report = (
+        dtype_report
+        .merge(
+            missing_report,
+            on="Column",
+            how="left"
+        )
+        .merge(
+            cardinality_report,
+            on="Column",
+            how="left"
+        )
+    )
+
+    report["Is Constant"] = report["Column"].isin(
+        constant_columns
+    )
+
+    report["High Cardinality"] = (
+        report["Unique Percentage"] >= 90
     )
 
     report_csv = report.to_csv(
         index=False
-    ).encode("utf-8")
+    ).encode("utf-8-sig")
 
     st.download_button(
         "Download Data Quality Report",
         data=report_csv,
         file_name="data_quality_report.csv",
         mime="text/csv",
-        use_container_width=True
+        width="stretch"
     )
 
     st.caption(

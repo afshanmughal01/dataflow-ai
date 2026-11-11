@@ -5,7 +5,169 @@ import plotly.express as px
 
 
 # =========================================================
-# TREND ANALYSIS PAGE
+# TREND ANALYSIS CONFIGURATION
+# =========================================================
+
+TEAL = "#0f9f93"
+NAVY = "#14233f"
+
+
+# =========================================================
+# HELPER FUNCTIONS
+# =========================================================
+
+def parse_dates(series):
+    """Convert a Series into datetime values, supporting mixed formats."""
+
+    try:
+        return pd.to_datetime(
+            series,
+            errors="coerce",
+            format="mixed"
+        )
+
+    except (TypeError, ValueError):
+        # Compatibility fallback for older Pandas versions
+        return pd.to_datetime(
+            series,
+            errors="coerce"
+        )
+
+
+def detect_date_columns(df):
+    """Automatically detect columns containing valid date values."""
+
+    date_columns = []
+
+    for col in df.columns:
+
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            date_columns.append(col)
+            continue
+
+        # Avoid interpreting ordinary numeric columns as dates
+        if pd.api.types.is_numeric_dtype(df[col]):
+            continue
+
+        parsed = parse_dates(df[col])
+
+        valid_ratio = parsed.notna().mean()
+        unique_dates = parsed.nunique()
+
+        if valid_ratio >= 0.80 and unique_dates >= 2:
+            date_columns.append(col)
+
+    return date_columns
+
+
+def get_numeric_columns(df):
+    """Detect numeric columns, including numbers stored as text."""
+
+    numeric_columns = []
+
+    for col in df.columns:
+
+        converted = pd.to_numeric(
+            df[col],
+            errors="coerce"
+        )
+
+        if converted.notna().any():
+            numeric_columns.append(col)
+
+    return numeric_columns
+
+
+def prepare_trend_data(df, date_column, value_column):
+    """Prepare date and numeric columns for trend analysis."""
+
+    trend_data = df[[date_column, value_column]].copy()
+
+    trend_data[date_column] = parse_dates(
+        trend_data[date_column]
+    )
+
+    trend_data[value_column] = pd.to_numeric(
+        trend_data[value_column],
+        errors="coerce"
+    )
+
+    return trend_data
+
+
+def aggregate_trend_data(data, date_column, value_column,
+                         frequency, aggregation):
+    """Aggregate numerical values by the selected time frequency."""
+
+    grouped = data.set_index(date_column).sort_index()
+
+    resampler = grouped[value_column].resample(frequency)
+
+    if aggregation == "Sum":
+        result = resampler.sum(min_count=1)
+
+    elif aggregation == "Average":
+        result = resampler.mean()
+
+    elif aggregation == "Count":
+        result = resampler.count()
+
+    elif aggregation == "Minimum":
+        result = resampler.min()
+
+    else:
+        result = resampler.max()
+
+    trend_df = result.reset_index()
+
+    trend_df.columns = [
+        "Date",
+        "Value"
+    ]
+
+    return trend_df.dropna(subset=["Value"])
+
+
+def calculate_trend_metrics(trend_df):
+    """Calculate overall trend metrics."""
+
+    first_value = float(trend_df["Value"].iloc[0])
+    last_value = float(trend_df["Value"].iloc[-1])
+
+    total_change = last_value - first_value
+
+    if first_value != 0:
+
+        percentage_change = (
+            total_change / abs(first_value)
+        ) * 100
+
+    else:
+        percentage_change = None
+
+    average_value = trend_df["Value"].mean()
+
+    if last_value > first_value:
+        trend_direction = "Increasing"
+
+    elif last_value < first_value:
+        trend_direction = "Decreasing"
+
+    else:
+        trend_direction = "Stable"
+
+    return (
+        first_value,
+        last_value,
+        total_change,
+        percentage_change,
+        average_value,
+        trend_direction
+    )
+
+
+# =========================================================
+# MAIN TREND ANALYSIS PAGE
 # =========================================================
 
 def render_trend_analysis(df):
@@ -30,49 +192,31 @@ def render_trend_analysis(df):
         st.warning("Please upload a dataset first.")
         return
 
-    data = df.copy()
+    data = df.copy(deep=True)
 
     # -----------------------------------------------------
-    # DETECT DATE COLUMNS
+    # DETECT DATE AND NUMERIC COLUMNS
     # -----------------------------------------------------
 
-    date_columns = []
+    date_columns = detect_date_columns(data)
 
-    for col in data.columns:
-
-        if pd.api.types.is_datetime64_any_dtype(data[col]):
-            date_columns.append(col)
-
-        elif (
-            data[col].dtype == "object"
-            or pd.api.types.is_string_dtype(data[col])
-        ):
-
-            parsed = pd.to_datetime(
-                data[col],
-                errors="coerce"
-            )
-
-            valid_ratio = parsed.notna().mean()
-
-            if valid_ratio >= 0.80 and parsed.nunique() >= 2:
-                date_columns.append(col)
-
-    numeric_columns = data.select_dtypes(
-        include="number"
-    ).columns.tolist()
+    numeric_columns = get_numeric_columns(data)
 
     if not date_columns:
+
         st.warning(
             "No suitable date column was detected. "
             "Please check your dataset's date format."
         )
+
         return
 
     if not numeric_columns:
+
         st.warning(
             "No numeric columns were detected for trend analysis."
         )
+
         return
 
     # -----------------------------------------------------
@@ -87,14 +231,16 @@ def render_trend_analysis(df):
 
         date_column = st.selectbox(
             "Select Date Column",
-            date_columns
+            date_columns,
+            key="trend_date_column"
         )
 
     with col2:
 
         value_column = st.selectbox(
             "Select Numeric Column",
-            numeric_columns
+            numeric_columns,
+            key="trend_numeric_column"
         )
 
     col3, col4, col5 = st.columns(3)
@@ -103,52 +249,69 @@ def render_trend_analysis(df):
 
         frequency = st.selectbox(
             "Time Frequency",
-            ["Daily", "Weekly", "Monthly", "Quarterly", "Yearly"],
-            index=2
+            [
+                "Daily",
+                "Weekly",
+                "Monthly",
+                "Quarterly",
+                "Yearly"
+            ],
+            index=2,
+            key="trend_frequency"
         )
 
     with col4:
 
         aggregation = st.selectbox(
             "Aggregation",
-            ["Sum", "Average", "Count", "Minimum", "Maximum"]
+            [
+                "Sum",
+                "Average",
+                "Count",
+                "Minimum",
+                "Maximum"
+            ],
+            key="trend_aggregation"
         )
 
     with col5:
 
         chart_type = st.selectbox(
             "Chart Type",
-            ["Line Chart", "Bar Chart", "Area Chart"]
+            [
+                "Line Chart",
+                "Bar Chart",
+                "Area Chart"
+            ],
+            key="trend_chart_type"
         )
 
     # -----------------------------------------------------
     # PREPARE DATA
     # -----------------------------------------------------
 
-    data[date_column] = pd.to_datetime(
-        data[date_column],
-        errors="coerce"
+    trend_data = prepare_trend_data(
+        data,
+        date_column,
+        value_column
     )
 
-    data[value_column] = pd.to_numeric(
-        data[value_column],
-        errors="coerce"
-    )
-
-    data = data.dropna(
+    trend_data = trend_data.dropna(
         subset=[date_column]
     )
 
     if aggregation != "Count":
 
-        data = data.dropna(
+        trend_data = trend_data.dropna(
             subset=[value_column]
         )
 
-    if data.empty:
+    if trend_data.empty:
+
         st.warning(
             "No valid date and numeric records are available."
         )
+
         return
 
     # -----------------------------------------------------
@@ -169,91 +332,34 @@ def render_trend_analysis(df):
     # AGGREGATION
     # -----------------------------------------------------
 
-    grouped = data.set_index(
-        date_column
-    ).sort_index()
-
-    if aggregation == "Sum":
-
-        result = grouped[value_column].resample(
-            period
-        ).sum()
-
-    elif aggregation == "Average":
-
-        result = grouped[value_column].resample(
-            period
-        ).mean()
-
-    elif aggregation == "Count":
-
-        result = grouped[value_column].resample(
-            period
-        ).count()
-
-    elif aggregation == "Minimum":
-
-        result = grouped[value_column].resample(
-            period
-        ).min()
-
-    else:
-
-        result = grouped[value_column].resample(
-            period
-        ).max()
-
-    trend_df = result.reset_index()
-
-    trend_df.columns = [
-        "Date",
-        "Value"
-    ]
-
-    trend_df = trend_df.dropna(
-        subset=["Value"]
+    trend_df = aggregate_trend_data(
+        trend_data,
+        date_column,
+        value_column,
+        period,
+        aggregation
     )
 
     if trend_df.empty:
+
         st.warning(
             "No results available for the selected frequency."
         )
+
         return
 
     # -----------------------------------------------------
     # TREND METRICS
     # -----------------------------------------------------
 
-    first_value = float(
-        trend_df["Value"].iloc[0]
-    )
-
-    last_value = float(
-        trend_df["Value"].iloc[-1]
-    )
-
-    total_change = last_value - first_value
-
-    if first_value != 0:
-
-        percentage_change = (
-            total_change / abs(first_value)
-        ) * 100
-
-    else:
-
-        percentage_change = None
-
-    average_value = trend_df["Value"].mean()
-
-    if last_value > first_value:
-        trend_direction = "Increasing"
-
-    elif last_value < first_value:
-        trend_direction = "Decreasing"
-
-    else:
-        trend_direction = "Stable"
+    (
+        first_value,
+        last_value,
+        total_change,
+        percentage_change,
+        average_value,
+        trend_direction
+    ) = calculate_trend_metrics(trend_df)
 
     # -----------------------------------------------------
     # DISPLAY METRICS
@@ -292,6 +398,13 @@ def render_trend_analysis(df):
             f"{percentage_change:+.2f}%"
         )
 
+    else:
+
+        st.caption(
+            "Percentage change is unavailable because "
+            "the first period has a value of zero."
+        )
+
     st.info(
         f"Overall direction based on the first and last periods: "
         f"**{trend_direction}**"
@@ -310,6 +423,7 @@ def render_trend_analysis(df):
             x="Date",
             y="Value",
             markers=True,
+            color_discrete_sequence=[TEAL],
             template="plotly_white"
         )
 
@@ -319,6 +433,7 @@ def render_trend_analysis(df):
             trend_df,
             x="Date",
             y="Value",
+            color_discrete_sequence=[TEAL],
             template="plotly_white"
         )
 
@@ -328,6 +443,7 @@ def render_trend_analysis(df):
             trend_df,
             x="Date",
             y="Value",
+            color_discrete_sequence=[TEAL],
             template="plotly_white"
         )
 
@@ -340,7 +456,7 @@ def render_trend_analysis(df):
 
     st.plotly_chart(
         fig,
-        use_container_width=True
+        width="stretch"
     )
 
     # -----------------------------------------------------
@@ -349,20 +465,30 @@ def render_trend_analysis(df):
 
     st.markdown("### Period-over-Period Change")
 
-    trend_df["Previous Value"] = (
-        trend_df["Value"].shift(1)
+    change_df = trend_df.copy()
+
+    change_df["Previous Value"] = (
+        change_df["Value"].shift(1)
     )
 
-    trend_df["Change"] = (
-        trend_df["Value"] -
-        trend_df["Previous Value"]
+    change_df["Change"] = (
+        change_df["Value"] -
+        change_df["Previous Value"]
     )
 
-    trend_df["Change Percentage"] = (
-        trend_df["Value"].pct_change() * 100
+    change_df["Change Percentage"] = (
+        change_df["Value"].pct_change(fill_method=None) * 100
     )
 
-    change_df = trend_df.dropna(
+    # Avoid displaying infinite percentages when previous value is zero
+    change_df["Change Percentage"] = (
+        change_df["Change Percentage"].replace(
+            [float("inf"), float("-inf")],
+            float("nan")
+        )
+    )
+
+    change_df = change_df.dropna(
         subset=["Previous Value"]
     ).copy()
 
@@ -385,12 +511,12 @@ def render_trend_analysis(df):
 
         st.plotly_chart(
             fig,
-            use_container_width=True
+            width="stretch"
         )
 
         st.dataframe(
             change_df.round(2),
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )
 
@@ -407,25 +533,23 @@ def render_trend_analysis(df):
 
     st.markdown("### Trend Summary")
 
-    st.write(
-        f"- **Selected metric:** {value_column}"
-    )
+    summary_col1, summary_col2 = st.columns(2)
 
-    st.write(
-        f"- **Time frequency:** {frequency}"
-    )
+    with summary_col1:
 
-    st.write(
-        f"- **Aggregation:** {aggregation}"
-    )
+        st.write(f"- **Selected metric:** {value_column}")
 
-    st.write(
-        f"- **Periods analyzed:** {len(trend_df)}"
-    )
+        st.write(f"- **Time frequency:** {frequency}")
 
-    st.write(
-        f"- **Overall direction:** {trend_direction}"
-    )
+        st.write(f"- **Aggregation:** {aggregation}")
+
+    with summary_col2:
+
+        st.write(f"- **Periods analyzed:** {len(trend_df)}")
+
+        st.write(f"- **Overall direction:** {trend_direction}")
+
+        st.write(f"- **Date column:** {date_column}")
 
     # -----------------------------------------------------
     # DOWNLOAD RESULTS
@@ -439,14 +563,14 @@ def render_trend_analysis(df):
 
     export_csv = export_df.to_csv(
         index=False
-    ).encode("utf-8")
+    ).encode("utf-8-sig")
 
     st.download_button(
         "Download Trend Analysis",
         data=export_csv,
         file_name="trend_analysis.csv",
         mime="text/csv",
-        use_container_width=True
+        width="stretch"
     )
 
     st.caption(

@@ -1,13 +1,184 @@
 
 import streamlit as st
 import pandas as pd
-import json
+import numpy as np
 import io
+
 from datetime import datetime
 
 
 # =========================================================
-# EXPORT CENTER
+# EXPORT CENTER CONFIGURATION
+# =========================================================
+
+APP_NAME = "DataFlow AI"
+
+
+# =========================================================
+# HELPER FUNCTIONS
+# =========================================================
+
+def format_bytes(size):
+    """Convert bytes into a readable file size."""
+
+    size = float(size)
+
+    for unit in ["B", "KB", "MB", "GB"]:
+
+        if size < 1024:
+            return f"{size:.2f} {unit}"
+
+        size /= 1024
+
+    return f"{size:.2f} TB"
+
+
+def get_numeric_columns(df):
+    """Detect numeric columns, including numbers stored as text."""
+
+    numeric_columns = []
+
+    for column in df.columns:
+
+        converted = pd.to_numeric(
+            df[column],
+            errors="coerce"
+        )
+
+        if converted.notna().any():
+            numeric_columns.append(column)
+
+    return numeric_columns
+
+
+def prepare_export_data(df, include_index):
+    """Prepare the dataset consistently for different export formats."""
+
+    export_data = df.copy(deep=True)
+
+    if include_index:
+
+        index_name = export_data.index.name or "Index"
+
+        # Avoid overwriting an existing column
+        if index_name in export_data.columns:
+
+            index_name = "Export_Index"
+
+            counter = 1
+
+            while index_name in export_data.columns:
+
+                index_name = f"Export_Index_{counter}"
+                counter += 1
+
+        export_data.insert(
+            0,
+            index_name,
+            export_data.index
+        )
+
+    return export_data
+
+
+def generate_summary_report(df, timestamp):
+    """Generate a detailed dataset summary report."""
+
+    numeric_columns = get_numeric_columns(df)
+
+    missing_cells = int(
+        df.isna().sum().sum()
+    )
+
+    duplicate_rows = int(
+        df.duplicated().sum()
+    )
+
+    memory_usage = df.memory_usage(
+        index=True,
+        deep=True
+    ).sum()
+
+    summary_lines = [
+        f"{APP_NAME} - DATASET SUMMARY REPORT",
+        "=" * 55,
+        "",
+        f"Generated: {timestamp}",
+        "",
+        "DATASET OVERVIEW",
+        "-" * 55,
+        f"Total Rows: {len(df):,}",
+        f"Total Columns: {len(df.columns):,}",
+        f"Missing Cells: {missing_cells:,}",
+        f"Duplicate Rows: {duplicate_rows:,}",
+        f"Memory Usage: {format_bytes(memory_usage)}",
+        "",
+        "COLUMN INFORMATION",
+        "-" * 55
+    ]
+
+    for column in df.columns:
+
+        missing_count = int(
+            df[column].isna().sum()
+        )
+
+        missing_percentage = (
+            missing_count / len(df) * 100
+            if len(df) > 0
+            else 0
+        )
+
+        summary_lines.append(
+            f"{column}: "
+            f"Type={df[column].dtype}, "
+            f"Missing={missing_count:,} "
+            f"({missing_percentage:.2f}%), "
+            f"Unique={df[column].nunique(dropna=True):,}"
+        )
+
+    if numeric_columns:
+
+        numeric_data = pd.DataFrame(index=df.index)
+
+        for column in numeric_columns:
+
+            numeric_data[column] = pd.to_numeric(
+                df[column],
+                errors="coerce"
+            )
+
+        summary_lines.extend([
+            "",
+            "NUMERICAL SUMMARY",
+            "-" * 55,
+            numeric_data.describe().round(2).to_string()
+        ])
+
+    return "\n".join(summary_lines)
+
+
+def generate_cleaning_log(cleaning_log):
+    """Convert the cleaning history into downloadable text."""
+
+    if isinstance(cleaning_log, list):
+
+        return "\n".join(
+            str(item) for item in cleaning_log
+        )
+
+    if isinstance(cleaning_log, dict):
+
+        return "\n".join(
+            f"{key}: {value}"
+            for key, value in cleaning_log.items()
+        )
+
+    return str(cleaning_log)
+
+
+# =========================================================
+# MAIN EXPORT CENTER PAGE
 # =========================================================
 
 def render_export_center(df):
@@ -28,8 +199,12 @@ def render_export_center(df):
     # VALIDATE DATA
     # -----------------------------------------------------
 
-    if df is None or df.empty:
-        st.warning("Please upload a dataset first.")
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+
+        st.warning(
+            "Please upload a dataset first."
+        )
+
         return
 
     # -----------------------------------------------------
@@ -44,29 +219,47 @@ def render_export_center(df):
         "prepared_df"
     )
 
-    dataset_options = ["Current Dataset"]
+    dataset_options = [
+        "Current Dataset"
+    ]
 
-    if isinstance(original_df, pd.DataFrame) and not original_df.empty:
-        dataset_options.append("Original Dataset")
+    if (
+        isinstance(original_df, pd.DataFrame)
+        and not original_df.empty
+    ):
 
-    if isinstance(prepared_df, pd.DataFrame) and not prepared_df.empty:
-        dataset_options.append("Prepared Dataset")
+        dataset_options.append(
+            "Original Dataset"
+        )
+
+    if (
+        isinstance(prepared_df, pd.DataFrame)
+        and not prepared_df.empty
+    ):
+
+        dataset_options.append(
+            "Prepared Dataset"
+        )
 
     st.markdown("### Select Dataset")
 
     selected_dataset = st.selectbox(
         "Choose the dataset you want to export",
-        dataset_options
+        dataset_options,
+        key="export_dataset_selection"
     )
 
     if selected_dataset == "Original Dataset":
-        export_df = original_df.copy()
+
+        export_df = original_df.copy(deep=True)
 
     elif selected_dataset == "Prepared Dataset":
-        export_df = prepared_df.copy()
+
+        export_df = prepared_df.copy(deep=True)
 
     else:
-        export_df = df.copy()
+
+        export_df = df.copy(deep=True)
 
     # -----------------------------------------------------
     # DATASET INFORMATION
@@ -75,6 +268,19 @@ def render_export_center(df):
     st.divider()
 
     st.markdown("### Dataset Information")
+
+    missing_cells = int(
+        export_df.isna().sum().sum()
+    )
+
+    duplicate_rows = int(
+        export_df.duplicated().sum()
+    )
+
+    memory_usage = export_df.memory_usage(
+        index=True,
+        deep=True
+    ).sum()
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -90,23 +296,27 @@ def render_export_center(df):
 
     col3.metric(
         "Missing Cells",
-        f"{export_df.isna().sum().sum():,}"
+        f"{missing_cells:,}"
     )
 
     col4.metric(
         "Duplicate Rows",
-        f"{export_df.duplicated().sum():,}"
+        f"{duplicate_rows:,}"
+    )
+
+    st.caption(
+        f"Dataset memory usage: {format_bytes(memory_usage)}"
     )
 
     # -----------------------------------------------------
-    # PREVIEW
+    # DATASET PREVIEW
     # -----------------------------------------------------
 
     st.markdown("### Dataset Preview")
 
     st.dataframe(
         export_df.head(10),
-        use_container_width=True,
+        width="stretch",
         hide_index=True
     )
 
@@ -129,19 +339,26 @@ def render_export_center(df):
                 "Excel",
                 "JSON",
                 "TXT"
-            ]
+            ],
+            key="export_format"
         )
 
     with col2:
 
         include_index = st.checkbox(
             "Include DataFrame Index",
-            value=False
+            value=False,
+            key="export_include_index"
         )
 
     # -----------------------------------------------------
-    # GENERATE FILE
+    # PREPARE EXPORT DATA
     # -----------------------------------------------------
+
+    file_export_df = prepare_export_data(
+        export_df,
+        include_index
+    )
 
     timestamp = datetime.now().strftime(
         "%Y%m%d_%H%M%S"
@@ -151,61 +368,118 @@ def render_export_center(df):
     file_name = None
     mime_type = None
 
-    if export_format == "CSV":
+    export_error = None
 
-        file_data = export_df.to_csv(
-            index=include_index
-        ).encode("utf-8-sig")
+    # -----------------------------------------------------
+    # GENERATE CSV
+    # -----------------------------------------------------
 
-        file_name = f"dataflow_export_{timestamp}.csv"
+    try:
 
-        mime_type = "text/csv"
+        if export_format == "CSV":
 
-    elif export_format == "Excel":
+            file_data = file_export_df.to_csv(
+                index=False
+            ).encode("utf-8-sig")
 
-        excel_buffer = io.BytesIO()
-
-        with pd.ExcelWriter(
-            excel_buffer,
-            engine="openpyxl"
-        ) as writer:
-
-            export_df.to_excel(
-                writer,
-                sheet_name="Dataset",
-                index=include_index
+            file_name = (
+                f"dataflow_export_{timestamp}.csv"
             )
 
-        file_data = excel_buffer.getvalue()
+            mime_type = "text/csv"
 
-        file_name = f"dataflow_export_{timestamp}.xlsx"
+        # -------------------------------------------------
+        # GENERATE EXCEL
+        # -------------------------------------------------
 
-        mime_type = (
-            "application/vnd.openxmlformats-officedocument."
-            "spreadsheetml.sheet"
-        )
+        elif export_format == "Excel":
 
-    elif export_format == "JSON":
+            excel_buffer = io.BytesIO()
 
-        file_data = export_df.to_json(
-            orient="records",
-            indent=4,
-            date_format="iso"
-        ).encode("utf-8")
+            with pd.ExcelWriter(
+                excel_buffer,
+                engine="openpyxl"
+            ) as writer:
 
-        file_name = f"dataflow_export_{timestamp}.json"
+                file_export_df.to_excel(
+                    writer,
+                    sheet_name="Dataset",
+                    index=False
+                )
 
-        mime_type = "application/json"
+                # Add a separate dataset information sheet
+                info_df = pd.DataFrame({
+                    "Information": [
+                        "Total Rows",
+                        "Total Columns",
+                        "Missing Cells",
+                        "Duplicate Rows",
+                        "Memory Usage"
+                    ],
+                    "Value": [
+                        len(export_df),
+                        len(export_df.columns),
+                        missing_cells,
+                        duplicate_rows,
+                        format_bytes(memory_usage)
+                    ]
+                })
 
-    elif export_format == "TXT":
+                info_df.to_excel(
+                    writer,
+                    sheet_name="Dataset Info",
+                    index=False
+                )
 
-        file_data = export_df.to_string(
-            index=include_index
-        ).encode("utf-8")
+            file_data = excel_buffer.getvalue()
 
-        file_name = f"dataflow_export_{timestamp}.txt"
+            file_name = (
+                f"dataflow_export_{timestamp}.xlsx"
+            )
 
-        mime_type = "text/plain"
+            mime_type = (
+                "application/vnd.openxmlformats-officedocument."
+                "spreadsheetml.sheet"
+            )
+
+        # -------------------------------------------------
+        # GENERATE JSON
+        # -------------------------------------------------
+
+        elif export_format == "JSON":
+
+            file_data = file_export_df.to_json(
+                orient="records",
+                indent=4,
+                date_format="iso",
+                force_ascii=False
+            ).encode("utf-8")
+
+            file_name = (
+                f"dataflow_export_{timestamp}.json"
+            )
+
+            mime_type = "application/json"
+
+        # -------------------------------------------------
+        # GENERATE TXT
+        # -------------------------------------------------
+
+        elif export_format == "TXT":
+
+            file_data = file_export_df.to_string(
+                index=False
+            ).encode("utf-8")
+
+            file_name = (
+                f"dataflow_export_{timestamp}.txt"
+            )
+
+            mime_type = "text/plain"
+
+    except Exception as error:
+
+        export_error = str(error)
 
     # -----------------------------------------------------
     # DOWNLOAD DATASET
@@ -215,13 +489,27 @@ def render_export_center(df):
 
     st.markdown("### Download Dataset")
 
-    st.download_button(
-        label=f"Download {export_format} File",
-        data=file_data,
-        file_name=file_name,
-        mime=mime_type,
-        use_container_width=True
-    )
+    if export_error:
+
+        st.error(
+            f"Unable to generate the export file: {export_error}"
+        )
+
+    elif file_data is not None:
+
+        st.caption(
+            f"File: {file_name} | "
+            f"Size: {format_bytes(len(file_data))}"
+        )
+
+        st.download_button(
+            label=f"Download {export_format} File",
+            data=file_data,
+            file_name=file_name,
+            mime=mime_type,
+            width="stretch",
+            key="download_dataset"
+        )
 
     # -----------------------------------------------------
     # GENERATE DATA SUMMARY
@@ -231,53 +519,25 @@ def render_export_center(df):
 
     st.markdown("### Dataset Summary Report")
 
-    numeric_columns = export_df.select_dtypes(
-        include="number"
-    ).columns.tolist()
-
-    summary_lines = [
-        "DATAFLOW AI - DATASET SUMMARY REPORT",
-        "=" * 45,
-        "",
-        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"Total Rows: {len(export_df)}",
-        f"Total Columns: {len(export_df.columns)}",
-        f"Missing Cells: {export_df.isna().sum().sum()}",
-        f"Duplicate Rows: {export_df.duplicated().sum()}",
-        "",
-        "COLUMN INFORMATION",
-        "-" * 45
-    ]
-
-    for column in export_df.columns:
-
-        summary_lines.append(
-            f"{column}: {export_df[column].dtype}"
-        )
-
-    if numeric_columns:
-
-        summary_lines.extend([
-            "",
-            "NUMERICAL SUMMARY",
-            "-" * 45,
-            export_df[numeric_columns].describe().round(2).to_string()
-        ])
-
-    summary_text = "\n".join(summary_lines)
+    summary_text = generate_summary_report(
+        export_df,
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    )
 
     st.text_area(
         "Report Preview",
         value=summary_text,
-        height=300
+        height=300,
+        key="export_summary_preview"
     )
 
     st.download_button(
         label="Download Summary Report",
-        data=summary_text.encode("utf-8"),
+        data=summary_text.encode("utf-8-sig"),
         file_name=f"dataflow_summary_{timestamp}.txt",
         mime="text/plain",
-        use_container_width=True
+        width="stretch",
+        key="download_summary"
     )
 
     # -----------------------------------------------------
@@ -295,29 +555,33 @@ def render_export_center(df):
 
     if cleaning_log:
 
-        if isinstance(cleaning_log, list):
+        log_text = generate_cleaning_log(
+            cleaning_log
+        )
 
-            log_text = "\n".join(
-                str(item) for item in cleaning_log
+        if log_text.strip():
+
+            st.text_area(
+                "Cleaning Log Preview",
+                value=log_text,
+                height=180,
+                key="export_cleaning_log_preview"
+            )
+
+            st.download_button(
+                label="Download Cleaning Log",
+                data=log_text.encode("utf-8-sig"),
+                file_name=f"dataflow_cleaning_log_{timestamp}.txt",
+                mime="text/plain",
+                width="stretch",
+                key="download_cleaning_log"
             )
 
         else:
 
-            log_text = str(cleaning_log)
-
-        st.text_area(
-            "Cleaning Log Preview",
-            value=log_text,
-            height=180
-        )
-
-        st.download_button(
-            label="Download Cleaning Log",
-            data=log_text.encode("utf-8"),
-            file_name=f"dataflow_cleaning_log_{timestamp}.txt",
-            mime="text/plain",
-            use_container_width=True
-        )
+            st.info(
+                "The cleaning history is currently empty."
+            )
 
     else:
 

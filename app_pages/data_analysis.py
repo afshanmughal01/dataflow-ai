@@ -2,11 +2,77 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.figure_factory as ff
 
 
 # =========================================================
-# DATA ANALYSIS PAGE
+# DATA ANALYSIS CONFIGURATION
+# =========================================================
+
+TEAL = "#0f9f93"
+NAVY = "#14233f"
+
+
+# =========================================================
+# HELPER FUNCTIONS
+# =========================================================
+
+def get_numeric_columns(df):
+    """Return numerical columns containing valid numeric values."""
+
+    numeric_columns = []
+
+    for col in df.columns:
+
+        converted = pd.to_numeric(
+            df[col],
+            errors="coerce"
+        )
+
+        if converted.notna().any():
+            numeric_columns.append(col)
+
+    return numeric_columns
+
+
+def get_categorical_columns(df):
+    """Return categorical columns with suitable unique values."""
+
+    categorical_columns = []
+
+    for col in df.select_dtypes(
+        include=["object", "category", "bool"]
+    ).columns:
+
+        unique_count = df[col].nunique(dropna=True)
+
+        if 2 <= unique_count <= 100:
+            categorical_columns.append(col)
+
+    return categorical_columns
+
+
+def format_number(value):
+    """Format numbers for display."""
+
+    return f"{value:,.0f}"
+
+
+def prepare_numeric_data(df, columns):
+    """Convert selected columns to numeric values safely."""
+
+    numeric_data = df[columns].copy()
+
+    for col in columns:
+        numeric_data[col] = pd.to_numeric(
+            numeric_data[col],
+            errors="coerce"
+        )
+
+    return numeric_data
+
+
+# =========================================================
+# MAIN DATA ANALYSIS PAGE
 # =========================================================
 
 def render_data_analysis(df):
@@ -31,15 +97,16 @@ def render_data_analysis(df):
         st.warning("Please upload a dataset first.")
         return
 
-    data = df.copy()
+    data = df.copy(deep=True)
 
-    numeric_columns = data.select_dtypes(
-        include="number"
-    ).columns.tolist()
+    numeric_columns = get_numeric_columns(data)
 
-    categorical_columns = data.select_dtypes(
-        include=["object", "category", "bool"]
-    ).columns.tolist()
+    categorical_columns = get_categorical_columns(data)
+
+    numeric_data = prepare_numeric_data(
+        data,
+        numeric_columns
+    )
 
     # -----------------------------------------------------
     # ANALYSIS OVERVIEW
@@ -49,9 +116,20 @@ def render_data_analysis(df):
 
     col1, col2, col3 = st.columns(3)
 
-    col1.metric("Total Records", f"{len(data):,}")
-    col2.metric("Numeric Columns", len(numeric_columns))
-    col3.metric("Categorical Columns", len(categorical_columns))
+    col1.metric(
+        "Total Records",
+        format_number(len(data))
+    )
+
+    col2.metric(
+        "Numeric Columns",
+        len(numeric_columns)
+    )
+
+    col3.metric(
+        "Categorical Columns",
+        len(categorical_columns)
+    )
 
     st.divider()
 
@@ -63,11 +141,11 @@ def render_data_analysis(df):
 
     if numeric_columns:
 
-        statistics = data[numeric_columns].describe().T
+        statistics = numeric_data.describe().T
 
-        statistics["missing"] = data[numeric_columns].isna().sum()
+        statistics["missing"] = numeric_data.isna().sum()
 
-        statistics["median"] = data[numeric_columns].median()
+        statistics["median"] = numeric_data.median()
 
         statistics = statistics.rename(
             columns={
@@ -86,7 +164,7 @@ def render_data_analysis(df):
 
         st.dataframe(
             statistics.round(2),
-            use_container_width=True
+            width="stretch"
         )
 
         csv_statistics = statistics.to_csv().encode("utf-8")
@@ -95,7 +173,8 @@ def render_data_analysis(df):
             "Download Statistical Summary",
             data=csv_statistics,
             file_name="statistical_summary.csv",
-            mime="text/csv"
+            mime="text/csv",
+            width="stretch"
         )
 
     else:
@@ -120,10 +199,9 @@ def render_data_analysis(df):
             key="analysis_distribution_column"
         )
 
-        distribution_data = pd.to_numeric(
-            data[selected_numeric],
-            errors="coerce"
-        ).dropna()
+        distribution_data = numeric_data[
+            selected_numeric
+        ].dropna()
 
         if not distribution_data.empty:
 
@@ -134,10 +212,13 @@ def render_data_analysis(df):
                 st.markdown("**Histogram**")
 
                 fig = px.histogram(
-                    distribution_data,
-                    x=selected_numeric,
+                    x=distribution_data,
                     nbins=30,
-                    color_discrete_sequence=["#0f9f93"],
+                    labels={
+                        "x": selected_numeric,
+                        "count": "Frequency"
+                    },
+                    color_discrete_sequence=[TEAL],
                     template="plotly_white"
                 )
 
@@ -148,7 +229,7 @@ def render_data_analysis(df):
 
                 st.plotly_chart(
                     fig,
-                    use_container_width=True
+                    width="stretch"
                 )
 
             with chart_col2:
@@ -156,9 +237,11 @@ def render_data_analysis(df):
                 st.markdown("**Box Plot**")
 
                 fig = px.box(
-                    distribution_data,
-                    y=selected_numeric,
-                    color_discrete_sequence=["#0f9f93"],
+                    y=distribution_data,
+                    labels={
+                        "y": selected_numeric
+                    },
+                    color_discrete_sequence=[TEAL],
                     template="plotly_white"
                 )
 
@@ -166,12 +249,14 @@ def render_data_analysis(df):
 
                 st.plotly_chart(
                     fig,
-                    use_container_width=True
+                    width="stretch"
                 )
 
         else:
 
-            st.info("This column does not contain valid numerical values.")
+            st.info(
+                "This column does not contain valid numerical values."
+            )
 
     else:
 
@@ -187,86 +272,105 @@ def render_data_analysis(df):
 
     if len(numeric_columns) >= 2:
 
-        correlation = data[numeric_columns].corr()
+        # Exclude columns with insufficient data or no variation
+        correlation_data = numeric_data[
+            numeric_columns
+        ].dropna(axis=1, how="all")
 
-        fig = px.imshow(
-            correlation,
-            text_auto=".2f",
-            color_continuous_scale="RdBu_r",
-            zmin=-1,
-            zmax=1,
-            aspect="auto",
-            template="plotly_white"
-        )
+        usable_columns = [
+            col for col in correlation_data.columns
+            if correlation_data[col].nunique() > 1
+        ]
 
-        fig.update_layout(
-            height=max(400, len(numeric_columns) * 55),
-            coloraxis_colorbar_title="Correlation"
-        )
+        correlation_data = correlation_data[
+            usable_columns
+        ]
 
-        st.plotly_chart(
-            fig,
-            use_container_width=True
-        )
+        if len(usable_columns) >= 2:
 
-        st.caption(
-            "Correlation ranges from -1 to +1. "
-            "A positive value indicates a positive relationship, "
-            "while a negative value indicates an inverse relationship. "
-            "Correlation does not establish causation."
-        )
+            correlation = correlation_data.corr()
 
-        # Strongest unique relationship
-        upper_triangle = correlation.where(
-            pd.Series(
-                True,
-                index=correlation.index
-            ).to_frame().dot(
-                pd.Series(
-                    True,
-                    index=correlation.columns
-                ).to_frame().T
-            ).astype(bool)
-        )
-
-        pairs = []
-
-        for i in range(len(numeric_columns)):
-            for j in range(i + 1, len(numeric_columns)):
-
-                col_a = numeric_columns[i]
-                col_b = numeric_columns[j]
-
-                value = correlation.loc[col_a, col_b]
-
-                if pd.notna(value):
-                    pairs.append({
-                        "Column 1": col_a,
-                        "Column 2": col_b,
-                        "Correlation": value
-                    })
-
-        if pairs:
-
-            pair_df = pd.DataFrame(pairs)
-
-            pair_df["Absolute Correlation"] = (
-                pair_df["Correlation"].abs()
+            fig = px.imshow(
+                correlation,
+                text_auto=".2f",
+                color_continuous_scale="RdBu_r",
+                zmin=-1,
+                zmax=1,
+                aspect="auto",
+                template="plotly_white"
             )
 
-            pair_df = pair_df.sort_values(
-                "Absolute Correlation",
-                ascending=False
+            fig.update_layout(
+                height=max(400, len(usable_columns) * 55),
+                coloraxis_colorbar_title="Correlation"
             )
 
-            st.markdown("#### Strongest Relationships")
+            st.plotly_chart(
+                fig,
+                width="stretch"
+            )
 
-            st.dataframe(
-                pair_df.drop(
-                    columns=["Absolute Correlation"]
-                ).head(10).round(3),
-                use_container_width=True,
-                hide_index=True
+            st.caption(
+                "Correlation ranges from -1 to +1. "
+                "A positive value indicates a positive relationship, "
+                "while a negative value indicates an inverse relationship. "
+                "Correlation does not establish causation."
+            )
+
+            # Find strongest unique relationships
+            pairs = []
+
+            for i in range(len(usable_columns)):
+
+                for j in range(i + 1, len(usable_columns)):
+
+                    col_a = usable_columns[i]
+                    col_b = usable_columns[j]
+
+                    value = correlation.loc[col_a, col_b]
+
+                    if pd.notna(value):
+
+                        pairs.append({
+                            "Column 1": col_a,
+                            "Column 2": col_b,
+                            "Correlation": value,
+                            "Absolute Correlation": abs(value)
+                        })
+
+            if pairs:
+
+                pair_df = pd.DataFrame(pairs)
+
+                pair_df = pair_df.sort_values(
+                    "Absolute Correlation",
+                    ascending=False
+                )
+
+                st.markdown("#### Strongest Relationships")
+
+                st.dataframe(
+                    pair_df.drop(
+                        columns=["Absolute Correlation"]
+                    ).head(10).round(3),
+                    width="stretch",
+                    hide_index=True
+                )
+
+                strongest = pair_df.iloc[0]
+
+                st.info(
+                    f"Strongest relationship: "
+                    f"**{strongest['Column 1']}** and "
+                    f"**{strongest['Column 2']}** "
+                    f"(Correlation: {strongest['Correlation']:.3f})"
+                )
+
+        else:
+
+            st.info(
+                "At least two numerical columns with varying values "
+                "are required for correlation analysis."
             )
 
     else:
@@ -315,7 +419,7 @@ def render_data_analysis(df):
                 category_counts,
                 x="Category",
                 y="Count",
-                color_discrete_sequence=["#0f9f93"],
+                color_discrete_sequence=[TEAL],
                 template="plotly_white"
             )
 
@@ -326,7 +430,7 @@ def render_data_analysis(df):
 
             st.plotly_chart(
                 fig,
-                use_container_width=True
+                width="stretch"
             )
 
         with category_col2:
@@ -345,14 +449,14 @@ def render_data_analysis(df):
 
             st.plotly_chart(
                 fig,
-                use_container_width=True
+                width="stretch"
             )
 
         st.markdown("#### Category Frequency Table")
 
         st.dataframe(
             category_counts,
-            use_container_width=True,
+            width="stretch",
             hide_index=True
         )
 
@@ -393,7 +497,7 @@ def render_data_analysis(df):
             missing_report,
             x="Column",
             y="Missing Percentage",
-            color_discrete_sequence=["#0f9f93"],
+            color_discrete_sequence=[TEAL],
             template="plotly_white"
         )
 
@@ -405,13 +509,20 @@ def render_data_analysis(df):
 
         st.plotly_chart(
             fig,
-            use_container_width=True
+            width="stretch"
         )
 
         st.dataframe(
             missing_report.round(2),
-            use_container_width=True,
+            width="stretch",
             hide_index=True
+        )
+
+        total_missing = int(data.isna().sum().sum())
+
+        st.warning(
+            f"Your dataset contains {total_missing:,} missing cells "
+            f"across {len(missing_report)} columns."
         )
 
     else:
@@ -420,4 +531,23 @@ def render_data_analysis(df):
 
     st.divider()
 
-    st.caption("DataFlow AI | Statistical & Exploratory Analysis")
+    # -----------------------------------------------------
+    # ANALYSIS SUMMARY
+    # -----------------------------------------------------
+
+    st.markdown("### Analysis Summary")
+
+    st.write(
+        f"""
+        Your dataset contains **{len(data):,} records** and
+        **{len(data.columns):,} columns**.
+
+        - Numerical columns: **{len(numeric_columns)}**
+        - Categorical columns: **{len(categorical_columns)}**
+        - Missing cells: **{int(data.isna().sum().sum()):,}**
+        """
+    )
+
+    st.caption(
+        "DataFlow AI | Statistical & Exploratory Analysis"
+    )
